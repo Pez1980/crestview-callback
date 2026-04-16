@@ -70,6 +70,7 @@ export default function App() {
   const [touched, setTouched] = useState({})
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [callbackError, setCallbackError] = useState('')
   const formRef = useRef(null)
 
   // Live clock for response time
@@ -114,6 +115,7 @@ export default function App() {
   function handleChange(field, value) {
     const updated = { ...form, [field]: value }
     setForm(updated)
+    if (callbackError) setCallbackError('')
     if (touched[field]) {
       const fieldErrors = validate(updated)
       setErrors(prev => ({
@@ -123,7 +125,7 @@ export default function App() {
     }
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     const allTouched = { name: true, email: true, state: true, phone: true, consent: true }
     setTouched(allTouched)
@@ -134,11 +136,28 @@ export default function App() {
     if (submitting || submitted) return
 
     setSubmitting(true)
-    // Simulate API call
-    setTimeout(() => {
+    setCallbackError('')
+    try {
+      const response = await fetch('/api/request-callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          state: form.state,
+          phone: form.phone,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data?.error || 'Could not start your callback right now.')
+      }
       setSubmitting(false)
       setSubmitted(true)
-    }, 1800)
+    } catch (error) {
+      setSubmitting(false)
+      setCallbackError(error?.message || 'Could not start your callback right now.')
+    }
   }
 
   const inputClasses = (field) => {
@@ -364,6 +383,10 @@ export default function App() {
                         </span>
                       </label>
                     </div>
+
+                    {callbackError && (
+                      <p className="text-[12px] text-[#C4553A] -mt-1">{callbackError}</p>
+                    )}
 
                     {/* Submit */}
                     <button
