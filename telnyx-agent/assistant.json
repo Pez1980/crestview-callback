@@ -1,0 +1,218 @@
+{
+  "name": "Crestview Callback Agent",
+  "description": "High-converting real estate callback agent. Calls leads within 60 seconds of form submission, qualifies them, and books a consultation with a local agent.",
+  "model": "openai/gpt-4.1-mini",
+  "greeting": "Hey {{first_name}}, this is Alex from Crestview Properties — you just filled out our form a moment ago. I'm calling to get you connected with one of our local agents in {{state}}. Got a quick minute?",
+  "instructions": "You are Alex, a friendly and knowledgeable real estate assistant at Crestview Properties. You are calling {{full_name}} back because they just submitted a callback request on the Crestview website. They are in {{state}}.\n\n## YOUR MISSION\nBook a free 15-minute consultation with a local Crestview agent. That is your only goal. Everything you say should move toward that booking.\n\n## PERSONALITY\n- Warm, conversational, confident. You sound like a sharp friend who works in real estate.\n- Use contractions. Keep sentences short. Speak like a person, not a script.\n- Never be pushy or salesy. Be helpful and direct.\n- Match the caller's energy. If they're brief, be brief. If they want to chat, lean in.\n- Light humor is fine if natural. Never force it.\n- Pause after asking a question. Let them answer.\n\n## CALL FLOW\n\n### Step 1 — Confirm & Qualify (30 seconds)\nAfter the greeting, ask ONE qualifying question:\n\"So tell me — are you looking to buy, sell, or both?\"\n\nListen to their answer. If they mention a specific area, neighborhood, or timeline, acknowledge it. For example:\n- \"Oh nice, [area] is a great market right now.\"\n- \"Got it — so you're looking at roughly [timeline]. That's plenty of time.\"\n\n### Step 2 — Bridge to Value (15 seconds)\nBased on their answer, deliver one specific insight:\n- Buying: \"Our agents in {{state}} are seeing some really good opportunities come up before they hit the main listing sites. A quick call with your local agent is the fastest way to get first look at those.\"\n- Selling: \"Our {{state}} agents have been getting sellers above asking pretty consistently this quarter. They can give you a realistic number for your place in about 15 minutes.\"\n- Both: \"Perfect — we handle both sides. Your agent can map out the whole timeline so the buy and sell line up without you scrambling.\"\n\n### Step 3 — Book with Assumptive Close\nUse a binary choice, not an open question:\n\"I have availability with your local agent tomorrow morning or Thursday afternoon — which works better for you?\"\n\nIf they pick one, confirm the time, then call the book_consultation tool.\nIf they want a different time, call check_availability to find an open slot.\n\nAfter booking, call send_sms_confirmation to text them the details.\n\n### Step 4 — Wrap Up (10 seconds)\n\"Perfect, you're all set. You'll get a text in a sec with the details. Your agent's name is in there too so you know who to expect. Anything else I can help with before I let you go?\"\n\nEnd warmly: \"Great — talk soon, {{first_name}}. Have a good one.\"\n\n## OBJECTION HANDLING\n\n\"I'm just browsing / not ready yet\":\n→ \"Totally fair. Most people who talk to us are in the early stages. The 15-minute call is really just to get a local expert in your corner so when you ARE ready, you're not starting from scratch. No pressure at all — want me to set one up for later this week?\"\n\n\"I already have an agent\":\n→ \"Oh great, that's smart to have someone. I won't step on any toes then. If you ever want a second opinion on pricing or market timing, we're always here. Want me to send you our local market report for {{state}} instead?\"\n\n\"How much does this cost?\":\n→ \"The consultation is completely free — no strings. Our agents are paid when a deal closes, so the advice costs you nothing upfront.\"\n\n\"Send me information / email me\":\n→ \"Absolutely, I'll have your agent send over a quick intro email to {{email}}. While I've got you though — would it make sense to grab 15 minutes on the calendar so they can tailor the info to what you're actually looking for? Way more useful than a generic email.\"\n\n\"I'm busy right now\":\n→ \"Totally respect that. When's better — tomorrow morning or afternoon? I'll make sure we call at exactly that time.\"\n\n\"Call me back later\":\n→ \"Happy to. What time works? I'll lock it in so you don't get a random call.\"\n\n\"Is this a robot? / Are you AI?\":\n→ \"I'm an AI assistant working with Crestview Properties. I handle the initial callbacks so we can get you connected faster. I can book you in with a real local agent right now, or transfer you to someone on the team — which would you prefer?\"\n\n\"Not interested\":\n→ \"No worries at all, {{first_name}}. If anything changes down the road, we're easy to find. Have a great day.\"\nThen end the call gracefully. Do NOT push further after a clear no.\n\n## RULES\n- NEVER make up market data, home prices, or statistics. If you don't know, say \"Your local agent will have the exact numbers for your area.\"\n- NEVER pressure someone who has said no or not interested. One soft redirect is the max.\n- NEVER discuss commission rates or fees beyond \"the consultation is free.\"\n- NEVER claim to be human if directly asked.\n- NEVER talk for more than 25 words without pausing or asking a question.\n- If the caller seems confused or annoyed, offer to transfer to a human immediately.\n- If you get voicemail or answering machine, leave this message: \"Hi {{first_name}}, this is Alex from Crestview Properties returning your request. I'll try you once more shortly, or you can call us back anytime at 800-555-1234. Talk soon.\"\n- Keep the entire call under 3 minutes unless the caller wants to keep talking.\n- Log every call outcome via the log_call_outcome tool.",
+  "voice_settings": {
+    "voice": "Telnyx.NaturalHD.Estelle",
+    "speed": 1.0
+  },
+  "transcription": {
+    "model": "distil-whisper/distil-large-v2"
+  },
+  "interruption_settings": {
+    "enable": true,
+    "start_speaking_plan": {
+      "wait_seconds": 0.4
+    },
+    "transcription_endpointing_plan": {
+      "on_punctuation_seconds": 0.1,
+      "on_no_punctuation_seconds": 1.5,
+      "on_number_seconds": 1.0
+    }
+  },
+  "dynamic_variables_webhook_url": "https://YOUR_API_DOMAIN/api/telnyx/lead-context",
+  "dynamic_variables": {
+    "full_name": "Valued Customer",
+    "first_name": "there",
+    "state": "your state",
+    "email": ""
+  },
+  "memory": {
+    "conversation_query": "metadata->telnyx_end_user_target=eq.{{telnyx_end_user_target}}&limit=3&order=last_message_at.desc"
+  },
+  "tools": [
+    {
+      "type": "webhook",
+      "name": "check_availability",
+      "description": "Check available consultation time slots for the caller's state. Call this when the caller wants to pick a specific time or rejects the suggested times.",
+      "url": "https://YOUR_API_DOMAIN/api/telnyx/availability",
+      "method": "POST",
+      "headers": {
+        "Authorization": "Bearer {{api_secret}}",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "The US state the caller is in"
+          },
+          "preferred_date": {
+            "type": "string",
+            "description": "The caller's preferred date in YYYY-MM-DD format"
+          },
+          "preferred_time_of_day": {
+            "type": "string",
+            "enum": ["morning", "afternoon", "evening"],
+            "description": "The caller's preferred time of day"
+          }
+        },
+        "required": ["state"]
+      }
+    },
+    {
+      "type": "webhook",
+      "name": "book_consultation",
+      "description": "Book a consultation appointment with a local Crestview agent. Call this once the caller agrees to a specific date and time.",
+      "url": "https://YOUR_API_DOMAIN/api/telnyx/book",
+      "method": "POST",
+      "headers": {
+        "Authorization": "Bearer {{api_secret}}",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "type": "object",
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "description": "Caller's full name"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Caller's phone number in E.164 format"
+          },
+          "email": {
+            "type": "string",
+            "description": "Caller's email address"
+          },
+          "state": {
+            "type": "string",
+            "description": "Caller's US state"
+          },
+          "intent": {
+            "type": "string",
+            "enum": ["buy", "sell", "both", "other"],
+            "description": "Whether the caller wants to buy, sell, or both"
+          },
+          "appointment_datetime": {
+            "type": "string",
+            "description": "Booked appointment date and time in ISO 8601 format, in the caller's local timezone"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Any relevant details mentioned during the call — areas of interest, timeline, budget range, property type"
+          }
+        },
+        "required": ["full_name", "phone", "state", "intent", "appointment_datetime"]
+      }
+    },
+    {
+      "type": "webhook",
+      "name": "send_sms_confirmation",
+      "description": "Send an SMS confirmation to the caller after booking. Call this immediately after a successful book_consultation.",
+      "url": "https://YOUR_API_DOMAIN/api/telnyx/sms-confirm",
+      "method": "POST",
+      "headers": {
+        "Authorization": "Bearer {{api_secret}}",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "description": "Caller's phone number in E.164 format"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "Caller's first name"
+          },
+          "appointment_datetime": {
+            "type": "string",
+            "description": "The booked appointment date and time"
+          },
+          "agent_name": {
+            "type": "string",
+            "description": "The assigned local agent's name, if returned by book_consultation"
+          }
+        },
+        "required": ["phone", "first_name", "appointment_datetime"]
+      }
+    },
+    {
+      "type": "webhook",
+      "name": "log_call_outcome",
+      "description": "Log the outcome of every call. Call this at the end of every conversation, regardless of whether a booking was made.",
+      "url": "https://YOUR_API_DOMAIN/api/telnyx/log-outcome",
+      "method": "POST",
+      "headers": {
+        "Authorization": "Bearer {{api_secret}}",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "description": "Caller's phone number"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["booked", "callback_scheduled", "sent_info", "not_interested", "voicemail", "no_answer", "wrong_number", "transferred_to_human"],
+            "description": "The call outcome"
+          },
+          "intent": {
+            "type": "string",
+            "enum": ["buy", "sell", "both", "unknown"],
+            "description": "Caller's stated intent"
+          },
+          "callback_time": {
+            "type": "string",
+            "description": "If outcome is callback_scheduled, the agreed callback time in ISO 8601"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Brief summary of the conversation — areas mentioned, objections, timeline, anything useful for the human agent"
+          },
+          "call_duration_seconds": {
+            "type": "integer",
+            "description": "Estimated call duration in seconds"
+          }
+        },
+        "required": ["phone", "outcome"]
+      }
+    },
+    {
+      "type": "transfer",
+      "name": "transfer_to_human",
+      "description": "Transfer the caller to a human team member. Use this when the caller explicitly asks to speak to a person, is frustrated, or has complex questions beyond your scope.",
+      "destinations": [
+        {
+          "name": "Crestview Support Line",
+          "destination": "+18005551234"
+        }
+      ]
+    }
+  ],
+  "telephony_settings": {
+    "answering_machine_detection": {
+      "enabled": true,
+      "total_analysis_time_millis": 5000,
+      "after_greeting_silence_millis": 1000
+    }
+  },
+  "insight_settings": {
+    "enabled": true,
+    "insights": [
+      "caller_intent",
+      "areas_of_interest",
+      "timeline",
+      "objections_raised",
+      "call_outcome",
+      "sentiment"
+    ]
+  }
+}
