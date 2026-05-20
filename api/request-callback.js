@@ -13,13 +13,35 @@ export default async function handler(req, res) {
   try {
     const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {})
 
+    // Normalize language → assistant routing. Default to en-US if unset.
+    const language = body.language === "es-MX" ? "es-MX" : "en-US"
+
+    // Validate optional IANA timezone — drop silently if malformed.
+    let timezone = null
+    if (
+      typeof body.timezone === "string" &&
+      body.timezone.length > 0 &&
+      body.timezone.length <= 64 &&
+      /^[A-Za-z_+\-/]+$/.test(body.timezone)
+    ) {
+      timezone = body.timezone
+    }
+
+    const forwarded = { ...body, language }
+    if (timezone) forwarded.timezone = timezone
+    else delete forwarded.timezone
+
+    const headers = {
+      "Content-Type": "application/json",
+      "x-callback-secret": callbackSecret,
+      "x-callback-language": language,
+    }
+    if (timezone) headers["x-callback-timezone"] = timezone
+
     const response = await fetch(`${swiftleadsBaseUrl}/api/v1/calls/public/callback`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-callback-secret": callbackSecret,
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: JSON.stringify(forwarded),
     })
 
     const data = await response.json().catch(() => ({}))
