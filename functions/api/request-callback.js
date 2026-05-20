@@ -52,10 +52,20 @@ export async function onRequestPost(context) {
       body: JSON.stringify(forwarded),
     })
 
-    const data = await response.json().catch(() => ({}))
+    // Capture raw upstream response so we can surface the real reason a
+    // submission failed instead of the generic "Callback request failed".
+    const rawText = await response.text()
+    let data = {}
+    try { data = JSON.parse(rawText) } catch { /* upstream returned non-JSON */ }
+
     if (!response.ok) {
-      const detail = data?.detail || data?.error || "Callback request failed"
-      return json({ error: detail }, response.status)
+      const detail =
+        data?.detail ||
+        data?.error ||
+        data?.message ||
+        (rawText && rawText.slice(0, 240)) ||
+        `Upstream returned ${response.status}`
+      return json({ error: detail, upstream_status: response.status }, response.status)
     }
 
     return json({
