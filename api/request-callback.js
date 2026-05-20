@@ -27,9 +27,15 @@ export default async function handler(req, res) {
       timezone = body.timezone
     }
 
-    const forwarded = { ...body, language }
-    if (timezone) forwarded.timezone = timezone
-    else delete forwarded.timezone
+    // Forward ONLY the fields the upstream Swiftleads schema accepts.
+    // Extra fields (language, timezone) get rejected by strict validation
+    // — send them as headers instead so the backend can opt in.
+    const forwarded = {
+      name: body.name,
+      email: body.email,
+      state: body.state,
+      phone: body.phone,
+    }
 
     const headers = {
       "Content-Type": "application/json",
