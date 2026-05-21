@@ -20,7 +20,7 @@ Las voces nativas `Telnyx.NaturalHD.*` son **solo en inglés**. Las opciones de 
 ```json
 {
   "provider": "elevenlabs",
-  "voice_id": "VR6AewLTigWG4xSOukaG",
+  "voice_id": "9Godp7dNohUvXk6qp0gS",
   "model": "eleven_multilingual_v2",
   "stability": 0.45,
   "similarity_boost": 0.75,
@@ -37,9 +37,9 @@ Las voces nativas `Telnyx.NaturalHD.*` son **solo en inglés**. Las opciones de 
 - **Turbo v2.5 es más rápido (~250ms)** pero pierde calidez y entonación en español. Para bienes raíces queremos calidez > velocidad máxima.
 - **Multilingual v2** = ~400-600ms TTFB, mejor prosodia mexicana, calidez intacta. Es el punto óptimo para voz AI en español de venta.
 
-### Voz: Valentina (femenina, MX neutral)
+### Voz: Regina - Contact Center (native MX female)
 
-- `voice_id: VR6AewLTigWG4xSOukaG` (Valentina, ElevenLabs library)
+- `voice_id: 9Godp7dNohUvXk6qp0gS` (Regina-Contact-Center, ElevenLabs Voice Library)
 - Acento mexicano neutro — sin marca regional fuerte (no chilanga, no norteña, no yucateca). Entendible para cualquier mercado hispanohablante.
 - Tono cálido, joven-adulto profesional. 78% de los compradores en bienes raíces responden mejor a voces femeninas en cold callbacks.
 
@@ -52,7 +52,7 @@ Las voces nativas `Telnyx.NaturalHD.*` son **solo en inglés**. Las opciones de 
 | Parámetro | Valor | Por qué |
 |-----------|-------|---------|
 | `stability` | 0.45 | Bajo = más variación prosódica = más humano. Subir a 0.6 si tiembla mucho la voz. |
-| `similarity_boost` | 0.75 | Conserva el timbre de Valentina. Bajar daña la identidad de la voz. |
+| `similarity_boost` | 0.75 | Conserva el timbre de Regina. Bajar daña la identidad de la voz. |
 | `style` | 0.35 | Expresividad media — calidez sin teatralidad. 0.5+ suena vendedora forzada. |
 | `use_speaker_boost` | true | Compresión que ayuda en teléfono PSTN — siempre activado para voz por línea. |
 | `speed` | 1.0 | Default. NO acelerar a 1.1+ en español — el cerebro lo procesa como ansiedad. |
@@ -106,7 +106,7 @@ curl -X POST https://api.telnyx.com/v2/ai/assistants \
 
 ### 2. Conectar tu cuenta de ElevenLabs en Telnyx Portal
 
-Telnyx Portal → Voice AI → TTS Providers → Add ElevenLabs → pegar API key. El `voice_id` Valentina debe estar disponible en tu cuenta (está en el catálogo público — agrégalo a "My Voices" antes).
+Telnyx Portal → Voice AI → TTS Providers → Add ElevenLabs → pegar API key. El `voice_id` Regina debe estar disponible en tu cuenta (está en el catálogo público — agrégalo a "My Voices" antes).
 
 ### 3. Reemplazar webhooks
 
