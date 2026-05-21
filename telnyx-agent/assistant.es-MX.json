@@ -9,16 +9,20 @@
     "api_key_ref": "elevenlabs",
     "voice_speed": 1.0,
     "similarity_boost": 0.85,
-    "style": 0.10,
+    "style": 0.1,
     "use_speaker_boost": true,
     "_voice_name": "Regina - Contact Center (ElevenLabs Voice Library, public_owner_id 1fb4ad9258694fff54fb0184433c88ec10a5ab94ee1f042eb55bba3fb025ebe5). Native Mexican Spanish female, young adult, conversational. Explicitly trained for contact-center/phone use, not an English voice running Spanish through translation. Replaced Sarah (EXAVITQu4vr4xnSDxMaL) after demo feedback that the English-trained voice's prosody leaked through as a gringo accent."
   },
   "transcription": {
     "model": "deepgram/nova-3",
-    "language": "es"
+    "language": "auto"
   },
   "telephony_settings": {
-    "noise_suppression": "KrispVivaTelLite"
+    "answering_machine_detection": {
+      "enabled": true,
+      "total_analysis_time_millis": 5000,
+      "after_greeting_silence_millis": 1000
+    }
   },
   "interruption_settings": {
     "enable": true,
@@ -65,11 +69,17 @@
           },
           "preferred_time_of_day": {
             "type": "string",
-            "enum": ["morning", "afternoon", "evening"],
+            "enum": [
+              "morning",
+              "afternoon",
+              "evening"
+            ],
             "description": "Horario preferido (mañana, tarde, noche)"
           }
         },
-        "required": ["state"]
+        "required": [
+          "state"
+        ]
       }
     },
     {
@@ -85,13 +95,30 @@
       "body": {
         "type": "object",
         "properties": {
-          "full_name": { "type": "string", "description": "Nombre completo del prospecto" },
-          "phone": { "type": "string", "description": "Teléfono en formato E.164" },
-          "email": { "type": "string", "description": "Correo electrónico" },
-          "state": { "type": "string", "description": "Estado del prospecto" },
+          "full_name": {
+            "type": "string",
+            "description": "Nombre completo del prospecto"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Teléfono en formato E.164"
+          },
+          "email": {
+            "type": "string",
+            "description": "Correo electrónico"
+          },
+          "state": {
+            "type": "string",
+            "description": "Estado del prospecto"
+          },
           "intent": {
             "type": "string",
-            "enum": ["buy", "sell", "both", "other"],
+            "enum": [
+              "buy",
+              "sell",
+              "both",
+              "other"
+            ],
             "description": "Comprar, vender, ambas, u otra cosa"
           },
           "appointment_datetime": {
@@ -103,7 +130,13 @@
             "description": "Detalles relevantes: zonas de interés, plazo, presupuesto, tipo de propiedad"
           }
         },
-        "required": ["full_name", "phone", "state", "intent", "appointment_datetime"]
+        "required": [
+          "full_name",
+          "phone",
+          "state",
+          "intent",
+          "appointment_datetime"
+        ]
       }
     },
     {
@@ -119,13 +152,35 @@
       "body": {
         "type": "object",
         "properties": {
-          "phone": { "type": "string", "description": "Teléfono en formato E.164" },
-          "first_name": { "type": "string", "description": "Primer nombre" },
-          "appointment_datetime": { "type": "string", "description": "Fecha y hora de la cita" },
-          "agent_name": { "type": "string", "description": "Nombre del asesor local asignado" },
-          "language": { "type": "string", "enum": ["es-MX"], "description": "Forzar plantilla SMS en español mexicano" }
+          "phone": {
+            "type": "string",
+            "description": "Teléfono en formato E.164"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "Primer nombre"
+          },
+          "appointment_datetime": {
+            "type": "string",
+            "description": "Fecha y hora de la cita"
+          },
+          "agent_name": {
+            "type": "string",
+            "description": "Nombre del asesor local asignado"
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "es-MX"
+            ],
+            "description": "Forzar plantilla SMS en español mexicano"
+          }
         },
-        "required": ["phone", "first_name", "appointment_datetime"]
+        "required": [
+          "phone",
+          "first_name",
+          "appointment_datetime"
+        ]
       }
     },
     {
@@ -141,15 +196,32 @@
       "body": {
         "type": "object",
         "properties": {
-          "phone": { "type": "string", "description": "Teléfono del prospecto" },
+          "phone": {
+            "type": "string",
+            "description": "Teléfono del prospecto"
+          },
           "outcome": {
             "type": "string",
-            "enum": ["booked", "callback_scheduled", "sent_info", "not_interested", "voicemail", "no_answer", "wrong_number", "transferred_to_human"],
+            "enum": [
+              "booked",
+              "callback_scheduled",
+              "sent_info",
+              "not_interested",
+              "voicemail",
+              "no_answer",
+              "wrong_number",
+              "transferred_to_human"
+            ],
             "description": "Resultado de la llamada"
           },
           "intent": {
             "type": "string",
-            "enum": ["buy", "sell", "both", "unknown"],
+            "enum": [
+              "buy",
+              "sell",
+              "both",
+              "unknown"
+            ],
             "description": "Intención declarada"
           },
           "callback_time": {
@@ -165,7 +237,10 @@
             "description": "Duración estimada en segundos"
           }
         },
-        "required": ["phone", "outcome"]
+        "required": [
+          "phone",
+          "outcome"
+        ]
       }
     },
     {
@@ -180,13 +255,6 @@
       ]
     }
   ],
-  "telephony_settings": {
-    "answering_machine_detection": {
-      "enabled": true,
-      "total_analysis_time_millis": 5000,
-      "after_greeting_silence_millis": 1000
-    }
-  },
   "insight_settings": {
     "enabled": true,
     "insights": [
