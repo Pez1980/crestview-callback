@@ -29,12 +29,24 @@ export async function onRequestPost(context) {
       return json({ error: "Invalid phone number" }, 400)
     }
 
-    const firstName = String(body.name || "").trim().split(/\s+/)[0] || "there"
+    // Pass lead context with BOTH naming conventions: ES assistant uses
+    // {{first_name}}, existing EN assistant template uses {{lead_first_name}}.
+    const fullName = String(body.name || "").trim()
+    const nameParts = fullName.split(/\s+/).filter(Boolean)
+    const firstName = nameParts[0] || "there"
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : ""
+    const state = String(body.state || "").trim() || "your area"
+    const email = String(body.email || "").trim()
     const dynamicVariables = {
-      full_name: String(body.name || "").trim() || "Valued Customer",
+      full_name: fullName || "Valued Customer",
       first_name: firstName,
-      state: String(body.state || "").trim() || "your area",
-      email: String(body.email || "").trim(),
+      state,
+      email,
+      lead_first_name: firstName,
+      lead_last_name: lastName,
+      lead_email: email,
+      lead_full_name: fullName || "Valued Customer",
+      lead_state: state,
     }
 
     let timezone = null

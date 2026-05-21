@@ -40,12 +40,28 @@ export default async function handler(req, res) {
 
     // Pass lead context to the assistant as dynamic variables so it greets by
     // name, references their state, and personalises the conversation.
-    const firstName = String(body.name || "").trim().split(/\s+/)[0] || "there"
+    // We send BOTH naming conventions ({{first_name}} and {{lead_first_name}})
+    // because the existing EN assistant template uses {{lead_first_name}} in
+    // its greeting while the ES assistant uses {{first_name}}. Sending both is
+    // belt-and-suspenders so neither assistant ever lands on a null/placeholder.
+    const fullName = String(body.name || "").trim()
+    const nameParts = fullName.split(/\s+/).filter(Boolean)
+    const firstName = nameParts[0] || "there"
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : ""
+    const state = String(body.state || "").trim() || "your area"
+    const email = String(body.email || "").trim()
     const dynamicVariables = {
-      full_name: String(body.name || "").trim() || "Valued Customer",
+      // ES-style naming (used by the Mexican Spanish assistant)
+      full_name: fullName || "Valued Customer",
       first_name: firstName,
-      state: String(body.state || "").trim() || "your area",
-      email: String(body.email || "").trim(),
+      state,
+      email,
+      // EN-style naming (used by the existing EN assistant template)
+      lead_first_name: firstName,
+      lead_last_name: lastName,
+      lead_email: email,
+      lead_full_name: fullName || "Valued Customer",
+      lead_state: state,
     }
 
     // Optional IANA timezone for downstream booking. Validate shape, drop if malformed.
