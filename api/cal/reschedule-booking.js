@@ -4,14 +4,16 @@
 const CAL_API = "https://api.cal.com/v2"
 const CAL_API_VERSION = "2024-08-13"
 
+export const config = { api: { bodyParser: false } }
+
 async function readJsonBody(req) {
-  if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) return req.body
-  if (typeof req.body === "string") { try { return JSON.parse(req.body || "{}") } catch { return {} } }
-  if (Buffer.isBuffer(req.body)) { try { return JSON.parse(req.body.toString("utf8") || "{}") } catch { return {} } }
   return new Promise((resolve) => {
     const chunks = []
     req.on("data", (c) => chunks.push(c))
-    req.on("end", () => { const t = Buffer.concat(chunks).toString("utf8"); try { resolve(JSON.parse(t || "{}")) } catch { resolve({}) } })
+    req.on("end", () => {
+      const t = Buffer.concat(chunks).toString("utf8")
+      try { resolve(JSON.parse(t || "{}")) } catch { resolve({}) }
+    })
     req.on("error", () => resolve({}))
   })
 }

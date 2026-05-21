@@ -15,17 +15,21 @@
 const CAL_API = "https://api.cal.com/v2"
 const CAL_API_VERSION = "2024-08-13"
 
-// Robust JSON body reader — handles missing Content-Type header (Telnyx Voice
-// AI tool-call webhooks send POST bodies without one, which causes Vercel's
-// default parser to return undefined/raw instead of a parsed object).
+// Disable Vercel's default body parser so we can read the raw stream
+// regardless of Content-Type header. Telnyx Voice AI tool-call webhooks
+// POST without Content-Type, which makes the default parser swallow the
+// body silently — we'd see {} and return 400 "start required" even with
+// valid args.
+export const config = { api: { bodyParser: false } }
+
 async function readJsonBody(req) {
-  if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) return req.body
-  if (typeof req.body === "string") { try { return JSON.parse(req.body || "{}") } catch { return {} } }
-  if (Buffer.isBuffer(req.body)) { try { return JSON.parse(req.body.toString("utf8") || "{}") } catch { return {} } }
   return new Promise((resolve) => {
     const chunks = []
     req.on("data", (c) => chunks.push(c))
-    req.on("end", () => { const t = Buffer.concat(chunks).toString("utf8"); try { resolve(JSON.parse(t || "{}")) } catch { resolve({}) } })
+    req.on("end", () => {
+      const t = Buffer.concat(chunks).toString("utf8")
+      try { resolve(JSON.parse(t || "{}")) } catch { resolve({}) }
+    })
     req.on("error", () => resolve({}))
   })
 }
