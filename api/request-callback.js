@@ -9,6 +9,18 @@
 //   TELNYX_CONNECTION_ID_EN     — TeXML app id bound to the EN assistant
 //   TELNYX_CONNECTION_ID_ES_MX  — TeXML app id bound to the ES-MX assistant
 
+async function readJsonBody(req) {
+  if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) return req.body
+  if (typeof req.body === "string") { try { return JSON.parse(req.body || "{}") } catch { return {} } }
+  if (Buffer.isBuffer(req.body)) { try { return JSON.parse(req.body.toString("utf8") || "{}") } catch { return {} } }
+  return new Promise((resolve) => {
+    const chunks = []
+    req.on("data", (c) => chunks.push(c))
+    req.on("end", () => { const t = Buffer.concat(chunks).toString("utf8"); try { resolve(JSON.parse(t || "{}")) } catch { resolve({}) } })
+    req.on("error", () => resolve({}))
+  })
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" })
@@ -26,7 +38,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {})
+    const body = await readJsonBody(req)
 
     const isEs = body.language === "es-MX"
     const language = isEs ? "es-MX" : "en-US"

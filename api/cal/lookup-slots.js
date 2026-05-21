@@ -15,6 +15,21 @@
 const CAL_API = "https://api.cal.com/v2"
 const CAL_API_VERSION = "2024-08-13"
 
+// Robust JSON body reader — handles missing Content-Type header (Telnyx Voice
+// AI tool-call webhooks send POST bodies without one, which causes Vercel's
+// default parser to return undefined/raw instead of a parsed object).
+async function readJsonBody(req) {
+  if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) return req.body
+  if (typeof req.body === "string") { try { return JSON.parse(req.body || "{}") } catch { return {} } }
+  if (Buffer.isBuffer(req.body)) { try { return JSON.parse(req.body.toString("utf8") || "{}") } catch { return {} } }
+  return new Promise((resolve) => {
+    const chunks = []
+    req.on("data", (c) => chunks.push(c))
+    req.on("end", () => { const t = Buffer.concat(chunks).toString("utf8"); try { resolve(JSON.parse(t || "{}")) } catch { resolve({}) } })
+    req.on("error", () => resolve({}))
+  })
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" })
 
@@ -27,7 +42,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {})
+    const body = await readJsonBody(req)
     let { start, end, timeZone } = body || {}
     if (!start) return res.status(400).json({ error: "start required" })
 
