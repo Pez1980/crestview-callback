@@ -85,6 +85,35 @@ export default async function handler(req, res) {
     if (!calResp.ok) {
       const msg = calData?.error?.message || calData?.message || ""
       if (/already has booking|not available/i.test(msg)) {
+        // Idempotency: a Telnyx tool-call timeout (5s default) may cause the
+        // assistant to retry while Cal.com is still processing the first
+        // request. The first request silently succeeds; the retry sees the
+        // slot taken. Before reporting slot_taken, check if THIS attendee
+        // already holds the booking for this slot — if so, return success.
+        try {
+          const lookupUrl = new URL(`${CAL_API}/bookings`)
+          lookupUrl.searchParams.set("attendeeEmail", email)
+          lookupUrl.searchParams.set("status", "upcoming")
+          const lookupResp = await fetch(lookupUrl, {
+            headers: { Authorization: `Bearer ${apiKey}`, "cal-api-version": CAL_API_VERSION },
+          })
+          const lookupData = await lookupResp.json().catch(() => ({}))
+          const existing = (lookupData?.data || []).find((b) => {
+            if (!b?.start) return false
+            return new Date(b.start).getTime() === new Date(startUtc).getTime()
+          })
+          if (existing) {
+            return res.status(200).json({
+              ok: true,
+              idempotent: true,
+              booking: {
+                uid: existing.uid || existing.id || null,
+                start: existing.start || startUtc,
+                attendee_email: email,
+              },
+            })
+          }
+        } catch { /* fall through to slot_taken */ }
         return res.status(409).json({ ok: false, reason: "slot_taken", message: "That slot is no longer available — pick another." })
       }
       return res.status(502).json({ ok: false, reason: "calcom_error", detail: calData })

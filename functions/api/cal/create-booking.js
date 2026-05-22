@@ -52,6 +52,30 @@ export async function onRequestPost(context) {
     if (!calResp.ok) {
       const msg = calData?.error?.message || calData?.message || ""
       if (/already has booking|not available/i.test(msg)) {
+        // Idempotency: if Telnyx retried due to its 5s tool-call timeout, the
+        // first request silently succeeded and this retry sees slot_taken.
+        // Check if THIS attendee already holds the booking — if so, return
+        // success (idempotent).
+        try {
+          const lookupUrl = new URL(`${CAL_API}/bookings`)
+          lookupUrl.searchParams.set("attendeeEmail", email)
+          lookupUrl.searchParams.set("status", "upcoming")
+          const lookupResp = await fetch(lookupUrl, {
+            headers: { Authorization: `Bearer ${apiKey}`, "cal-api-version": CAL_API_VERSION },
+          })
+          const lookupData = await lookupResp.json().catch(() => ({}))
+          const existing = (lookupData?.data || []).find((b) => {
+            if (!b?.start) return false
+            return new Date(b.start).getTime() === new Date(startUtc).getTime()
+          })
+          if (existing) {
+            return json({
+              ok: true,
+              idempotent: true,
+              booking: { uid: existing.uid || existing.id || null, start: existing.start || startUtc, attendee_email: email },
+            })
+          }
+        } catch { /* fall through */ }
         return json({ ok: false, reason: "slot_taken", message: "That slot is no longer available — pick another." }, 409)
       }
       return json({ ok: false, reason: "calcom_error", detail: calData }, 502)
