@@ -1,6 +1,19 @@
 // Cloudflare Pages Function — places an outbound call via Telnyx Voice AI
 // directly, picking the EN or ES-MX assistant based on the form's language.
 // Mirrors api/request-callback.js (Vercel) so both hosts stay in sync.
+// SWIFTLEADS_ORG_ID / SWIFTLEADS_WEBHOOK_BASE — see api/request-callback.js
+
+function buildSwiftLeadsWebhookUrl({ base, orgId, assistantId, dynamicVariables }) {
+  const params = new URLSearchParams({
+    organization_id: orgId,
+    callback_source: "webform",
+    assistant_id: assistantId,
+  })
+  if (dynamicVariables && Object.keys(dynamicVariables).length > 0) {
+    params.set("dynamic_variables", JSON.stringify(dynamicVariables))
+  }
+  return `${base.replace(/\/$/, "")}/api/v1/calls/webhook?${params}`
+}
 
 export async function onRequestPost(context) {
   const { request, env } = context
@@ -11,6 +24,8 @@ export async function onRequestPost(context) {
   const assistantEs = (env.TELNYX_ASSISTANT_ID_ES_MX || "").trim()
   const connectionEn = (env.TELNYX_CONNECTION_ID_EN || "").trim()
   const connectionEs = (env.TELNYX_CONNECTION_ID_ES_MX || "").trim()
+  const slOrgId = (env.SWIFTLEADS_ORG_ID || "454d7717-c5a2-4738-abb6-3acf3de600f3").trim()
+  const slWebhookBase = (env.SWIFTLEADS_WEBHOOK_BASE || "https://agent.swiftleadsai.com").trim()
 
   if (!apiKey || !fromNumber || !assistantEn || !assistantEs || !connectionEn || !connectionEs) {
     return json({ error: "Telnyx integration is not configured" }, 500)
@@ -29,8 +44,6 @@ export async function onRequestPost(context) {
       return json({ error: "Invalid phone number" }, 400)
     }
 
-    // Pass lead context with BOTH naming conventions: ES assistant uses
-    // {{first_name}}, existing EN assistant template uses {{lead_first_name}}.
     const fullName = String(body.name || "").trim()
     const nameParts = fullName.split(/\s+/).filter(Boolean)
     const firstName = nameParts[0] || "there"
@@ -68,6 +81,12 @@ export async function onRequestPost(context) {
       answering_machine_detection: "premium",
       timeout_secs: 30,
       time_limit_secs: 600,
+      webhook_url: buildSwiftLeadsWebhookUrl({
+        base: slWebhookBase,
+        orgId: slOrgId,
+        assistantId,
+        dynamicVariables,
+      }),
       assistant: {
         id: assistantId,
         dynamic_variables: dynamicVariables,

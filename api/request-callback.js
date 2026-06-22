@@ -8,8 +8,22 @@
 //   TELNYX_ASSISTANT_ID_ES_MX   — Spanish (Mexico) assistant id
 //   TELNYX_CONNECTION_ID_EN     — TeXML app id bound to the EN assistant
 //   TELNYX_CONNECTION_ID_ES_MX  — TeXML app id bound to the ES-MX assistant
+//   SWIFTLEADS_ORG_ID           — Callz org to log calls under (default: DEMO SL)
+//   SWIFTLEADS_WEBHOOK_BASE     — Agent base URL (default: https://agent.swiftleadsai.com)
 
 export const config = { api: { bodyParser: false } }
+
+function buildSwiftLeadsWebhookUrl({ base, orgId, assistantId, dynamicVariables }) {
+  const params = new URLSearchParams({
+    organization_id: orgId,
+    callback_source: "webform",
+    assistant_id: assistantId,
+  })
+  if (dynamicVariables && Object.keys(dynamicVariables).length > 0) {
+    params.set("dynamic_variables", JSON.stringify(dynamicVariables))
+  }
+  return `${base.replace(/\/$/, "")}/api/v1/calls/webhook?${params}`
+}
 
 async function readJsonBody(req) {
   return new Promise((resolve) => {
@@ -34,6 +48,8 @@ export default async function handler(req, res) {
   const assistantEs = (process.env.TELNYX_ASSISTANT_ID_ES_MX || "").trim()
   const connectionEn = (process.env.TELNYX_CONNECTION_ID_EN || "").trim()
   const connectionEs = (process.env.TELNYX_CONNECTION_ID_ES_MX || "").trim()
+  const slOrgId = (process.env.SWIFTLEADS_ORG_ID || "454d7717-c5a2-4738-abb6-3acf3de600f3").trim()
+  const slWebhookBase = (process.env.SWIFTLEADS_WEBHOOK_BASE || "https://agent.swiftleadsai.com").trim()
 
   if (!apiKey || !fromNumber || !assistantEn || !assistantEs || !connectionEn || !connectionEs) {
     return res.status(500).json({ error: "Telnyx integration is not configured" })
@@ -52,12 +68,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Invalid phone number" })
     }
 
-    // Pass lead context to the assistant as dynamic variables so it greets by
-    // name, references their state, and personalises the conversation.
-    // We send BOTH naming conventions ({{first_name}} and {{lead_first_name}})
-    // because the existing EN assistant template uses {{lead_first_name}} in
-    // its greeting while the ES assistant uses {{first_name}}. Sending both is
-    // belt-and-suspenders so neither assistant ever lands on a null/placeholder.
     const fullName = String(body.name || "").trim()
     const nameParts = fullName.split(/\s+/).filter(Boolean)
     const firstName = nameParts[0] || "there"
@@ -65,12 +75,10 @@ export default async function handler(req, res) {
     const state = String(body.state || "").trim() || "your area"
     const email = String(body.email || "").trim()
     const dynamicVariables = {
-      // ES-style naming (used by the Mexican Spanish assistant)
       full_name: fullName || "Valued Customer",
       first_name: firstName,
       state,
       email,
-      // EN-style naming (used by the existing EN assistant template)
       lead_first_name: firstName,
       lead_last_name: lastName,
       lead_email: email,
@@ -78,7 +86,6 @@ export default async function handler(req, res) {
       lead_state: state,
     }
 
-    // Optional IANA timezone for downstream booking. Validate shape, drop if malformed.
     let timezone = null
     if (
       typeof body.timezone === "string" &&
@@ -98,6 +105,12 @@ export default async function handler(req, res) {
       answering_machine_detection: "premium",
       timeout_secs: 30,
       time_limit_secs: 600,
+      webhook_url: buildSwiftLeadsWebhookUrl({
+        base: slWebhookBase,
+        orgId: slOrgId,
+        assistantId,
+        dynamicVariables,
+      }),
       assistant: {
         id: assistantId,
         dynamic_variables: dynamicVariables,
