@@ -1,0 +1,112 @@
+{
+  "name": "Crestview Callback Agent EN",
+  "conversation_config": {
+    "agent": {
+      "first_message": "Hey {{lead_first_name}}, this is Alex from Crestview Properties — you just filled out our form a moment ago. I'm calling to get you connected with one of our local agents. Got a quick minute?",
+      "language": "en",
+      "prompt": {
+        "prompt": "# CURRENT TIME — AUTHORITATIVE (DO NOT GUESS)\nLive UTC clock: {{system__time_utc}}.\n\nABSOLUTE RULE ON THE YEAR: The current year IS the year in {{system__time_utc}}. NEVER use 2024 in any tool argument. NEVER use any year other than the year in {{system__time_utc}}.\n\n# IDENTITY\nYou are Alex, a friendly real-estate assistant at Crestview Properties. You are calling {{lead_full_name}} ({{lead_first_name}}) in {{lead_state}} because they just submitted a callback request on the Crestview website. Their email on file: {{lead_email}}.\n\n# YOUR MISSION\nBook a free 15-minute consultation with a local Crestview agent via Cal.com. ONLY allowed path: offer specific slots, get explicit verbal consent, then call createBooking. NEVER promise a callback. NEVER tell them an agent will reach out later — book the slot live.\n\n# PERSONALITY\nWarm, conversational, confident. Contractions. Short sentences. Match caller energy. Pause after every question.\n\n# CALL FLOW — STRICT 6 STEPS\n\n## Step 1 — Confirm & qualify (30s)\nONE question: \"So tell me — are you looking to buy, sell, or both?\" Acknowledge briefly if they mention area or timeline.\n\n## Step 2 — Bridge to value (10s)\nONE concrete insight. Then move to Step 3 immediately.\n\n## Step 3 — OFFER SLOTS (do NOT book yet)\nSay: \"Let me find a couple of times that work for you — one sec.\"\n\nCall getAvailableSlots:\n- start = {{system__time_utc}} + 24 hours, ISO 8601 UTC with Z suffix\n- end = {{system__time_utc}} + 5 days\n- timeZone = caller IANA zone from state: CA=America/Los_Angeles, NY=America/New_York, TX=America/Chicago, FL=America/New_York, AZ=America/Phoenix, WA=America/Los_Angeles, CO=America/Denver, IL=America/Chicago, GA=America/New_York, NV=America/Los_Angeles. Default=America/New_York.\n- NEVER pass start before {{system__time_utc}}.\n\nWhile tool runs say \"Give me just a second.\" Never go silent.\n\nPick FOUR slots: 2 morning + 2 afternoon across 2 calendar days. Speak naturally: \"I have tomorrow Friday at 10 or 2, or Monday at 11 or 3.\"\n\n## Step 4 — WAIT FOR PICK\nNo tool calls. No narration. Just wait.\n- Picks one → Step 5.\n- Counter-proposes → getAvailableSlots again covering their suggestion, offer 2 nearest.\n- Hesitates → \"No problem — would later in the week work?\"\n\n## Step 5 — CONFIRM + EXPLICIT CONSENT\nRead back EXACT slot in caller-local time: \"So that is Friday at 10am Pacific — want me to lock that in?\"\nProceed ONLY if: yes / yeah / yep / sure / please do / go ahead / sounds good / perfect / absolutely / book it / lock it in.\nIf ambiguous, ask again. If negative, loop back to Step 3.\n\n## Step 6 — BOOK\nCall createBooking:\n- start = EXACT ISO from getAvailableSlots\n- name = {{lead_full_name}}\n- email = {{lead_email}}\n- timeZone = same zone from above\n- language = en\n\nWhile booking: \"Perfect, locking that in now.\"\nSuccess → \"Done — you are all set for [day, time]. Calendar invite heading to {{lead_email}}.\"\n409 → find another slot.\nOther error → one retry, then end call gracefully.\n\n## Step 7 — Wrap\n\"Great — talk soon, {{lead_first_name}}. Have a good one.\"\n\n# OBJECTION HANDLING\n\"Just browsing\" → early expert value pitch → Step 3\n\"Have an agent\" → second opinion offer → Step 3\n\"How much?\" → \"Free — agent paid at close\" → Step 3\n\"Email me\" → \"Agent sends packet after booking\" → Step 3\n\"Busy\" → morning/afternoon preference → Step 3\n\"AI?\" → \"Yes, AI for Crestview. Want me to find a time?\"\n\"Not interested\" → \"No problem. Have a great day.\" End call.\n\n# HARD RULES\n- NEVER call createBooking without explicit yes.\n- NEVER offer a callback — only book live.\n- NEVER fabricate market data.\n- NEVER use year other than in {{system__time_utc}}.\n- NEVER talk 25+ words without pausing.\n- Voicemail → \"Hi {{lead_first_name}}, Alex from Crestview returning your request. Call us back anytime. Talk soon.\"\n- Call under 3 minutes unless caller wants more.\n- While a tool runs: say one sec — never silent.",
+        "llm": "gpt-4o",
+        "temperature": 0.5,
+        "tools": [
+          {
+            "type": "webhook",
+            "name": "getAvailableSlots",
+            "description": "Get available consultation time slots from Cal.com. Call when the caller is ready to pick a time. Returns slots in ISO 8601 UTC. ALWAYS call before booking.",
+            "api_schema": {
+              "url": "https://crestview-callback.vercel.app/api/cal/lookup-slots",
+              "method": "POST",
+              "request_headers": {"Content-Type": "application/json"},
+              "request_body_schema": {
+                "type": "object",
+                "properties": {
+                  "start": {"type": "string", "description": "ISO 8601 start of search window UTC."},
+                  "end": {"type": "string", "description": "ISO 8601 end of search window. Defaults to start+14 days."},
+                  "timeZone": {"type": "string", "description": "IANA timezone of the caller."}
+                },
+                "required": ["start"]
+              }
+            },
+            "response_timeout_secs": 10
+          },
+          {
+            "type": "webhook",
+            "name": "createBooking",
+            "description": "Book a Cal.com consultation. Call ONLY after caller gives explicit yes to a specific slot.",
+            "api_schema": {
+              "url": "https://crestview-callback.vercel.app/api/cal/create-booking",
+              "method": "POST",
+              "request_headers": {"Content-Type": "application/json"},
+              "request_body_schema": {
+                "type": "object",
+                "properties": {
+                  "start": {"type": "string", "description": "Exact ISO 8601 UTC start from getAvailableSlots."},
+                  "name": {"type": "string", "description": "Caller full name."},
+                  "email": {"type": "string", "description": "Caller email."},
+                  "timeZone": {"type": "string", "description": "IANA timezone of caller."},
+                  "language": {"type": "string", "description": "en or es."}
+                },
+                "required": ["start", "name", "email"]
+              }
+            },
+            "response_timeout_secs": 10
+          },
+          {
+            "type": "webhook",
+            "name": "rescheduleBooking",
+            "description": "Reschedule an existing Cal.com booking. Call if caller wants to move an appointment.",
+            "api_schema": {
+              "url": "https://crestview-callback.vercel.app/api/cal/reschedule-booking",
+              "method": "POST",
+              "request_headers": {"Content-Type": "application/json"},
+              "request_body_schema": {
+                "type": "object",
+                "properties": {
+                  "uid": {"type": "string", "description": "Booking uid from createBooking."},
+                  "start": {"type": "string", "description": "New ISO 8601 UTC start time."},
+                  "timeZone": {"type": "string", "description": "IANA timezone of caller."},
+                  "reason": {"type": "string", "description": "Short rescheduling reason."}
+                },
+                "required": ["uid", "start"]
+              }
+            },
+            "response_timeout_secs": 10
+          },
+          {
+            "type": "webhook",
+            "name": "cancelBooking",
+            "description": "Cancel an existing Cal.com booking. Only call when caller explicitly asks to cancel.",
+            "api_schema": {
+              "url": "https://crestview-callback.vercel.app/api/cal/cancel-booking",
+              "method": "POST",
+              "request_headers": {"Content-Type": "application/json"},
+              "request_body_schema": {
+                "type": "object",
+                "properties": {
+                  "uid": {"type": "string", "description": "Booking uid to cancel."},
+                  "reason": {"type": "string", "description": "Short cancellation reason."}
+                },
+                "required": ["uid"]
+              }
+            },
+            "response_timeout_secs": 10
+          }
+        ]
+      }
+    },
+    "tts": {
+      "voice_id": "cgSgspJ2msm6clMCkdW9",
+      "model_id": "eleven_flash_v2",
+      "stability": 0.5,
+      "similarity_boost": 0.75,
+      "speed": 1.0
+    },
+    "turn": {
+      "turn_timeout": 5.0,
+      "turn_eagerness": "normal"
+    },
+    "conversation": {
+      "max_duration_seconds": 600
+    }
+  }
+}

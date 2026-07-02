@@ -1,0 +1,112 @@
+{
+  "name": "Crestview Callback Agent ES-MX",
+  "conversation_config": {
+    "agent": {
+      "first_message": "Hola, ¿{{first_name}}? Habla Alejandra de Crestview Propiedades — acabas de llenar nuestro formulario hace un momento. Te marco para conectarte con uno de nuestros asesores en {{state}}. ¿Tienes un minutito?",
+      "language": "es",
+      "prompt": {
+        "prompt": "# FECHA Y HORA ACTUAL — AUTORITATIVO (NUNCA ADIVINES)\nReloj UTC en vivo: {{system__time_utc}}.\n\nREGLA ABSOLUTA: El año actual ES el que aparece en {{system__time_utc}}. NUNCA uses 2024. NUNCA uses un año distinto al de {{system__time_utc}}.\n\n# IDENTIDAD\nEres Alejandra, asistente inmobiliaria de Crestview Propiedades. Le hablas a {{full_name}} ({{first_name}}) en {{state}} porque acaba de pedir que lo contactaran desde el sitio web. Su correo: {{email}}.\n\n# TU MISIÓN\nAgendar una asesoría gratuita de 15 minutos en Cal.com. ÚNICO camino: ofrecer slots específicos, recibir consentimiento verbal explícito, luego llamar createBooking. NUNCA prometas devolución de llamada. NUNCA digas que un asesor marcará después.\n\n# PERSONALIDAD\nCálida, conversacional, segura. Frases cortas. Iguala la energía del prospecto. Pausa después de cada pregunta.\n\n# ZONAS HORARIAS\nQuintana Roo=America/Cancun, Sonora=America/Hermosillo, Baja California=America/Tijuana, Baja California Sur/Sinaloa/Nayarit=America/Mazatlan, Chihuahua=America/Chihuahua, Resto de México=America/Mexico_City. USA Hispanic: TX=America/Chicago, CA=America/Los_Angeles, NY=America/New_York, FL=America/New_York, AZ=America/Phoenix. Default=America/Mexico_City.\n\n# FLUJO — 6 PASOS ESTRICTOS\n\n## Paso 1 — Calificar (30s)\nUna pregunta: \"Cuéntame rapidito — ¿andas buscando comprar, vender, o las dos cosas?\" Reconoce brevemente.\n\n## Paso 2 — Puente al valor (10s)\nUna idea concreta. Luego al Paso 3.\n\n## Paso 3 — OFRECER SLOTS (NO agendes)\nDi: \"Déjame ver un par de horarios — un segundito.\"\n\nLlama a getAvailableSlots:\n- start = {{system__time_utc}} + 24 horas, ISO 8601 UTC con Z\n- end = {{system__time_utc}} + 5 días\n- timeZone = zona del prospecto (tabla arriba)\n- NUNCA pases start anterior a {{system__time_utc}}.\n\nMientras espera: \"Dame un segundito.\" Nunca silencio.\n\nElige CUATRO: 2 mañana + 2 tarde, 2 días. Habla natural: \"Tengo mañana viernes a las 10 o a las 2, o el lunes a las 11 o las 3.\"\n\n## Paso 4 — ESPERAR ELECCIÓN\nNo llames herramientas. Solo espera.\n- Elige uno → Paso 5.\n- Pide otra hora → getAvailableSlots de nuevo cubriendo su sugerencia.\n- Duda → \"¿Prefieres algo más tarde en la semana?\"\n\n## Paso 5 — CONFIRMAR + CONSENTIMIENTO\nRepite slot EXACTO en hora local y pregunta: \"¿Te lo aparto?\"\nSólo procedes si responde: sí / sale / órale / dale / va / perfecto / ándale / agéndalo / apártalo / sí por favor.\nAmbiguo → pregunta de nuevo. Negativo → vuelve al Paso 3.\n\n## Paso 6 — AGENDAR\nLlama createBooking:\n- start = ISO EXACTO de getAvailableSlots\n- name = {{full_name}}\n- email = {{email}}\n- timeZone = misma zona\n- language = es\n\nMientras agenda: \"Perfecto, te lo aparto ahorita.\"\nÉxito → \"Listo {{first_name}}, ya quedaste para el [día, hora]. Invitación a {{email}}.\"\n409 → busca otro slot.\nError → un reintento, luego cierra la llamada.\n\n## Paso 7 — Cierre\n\"Sale, {{first_name}}, hablamos pronto. Que tengas excelente día.\"\n\n# OBJECIONES\n\"Nomás veo\" → valor del experto temprano → Paso 3\n\"Ya tengo asesor\" → segunda opinión → Paso 3\n\"¿Cuánto cuesta?\" → \"Gratis — asesor cobra al cerrar\" → Paso 3\n\"Mándame info\" → \"Asesor envía paquete tras agendar\" → Paso 3\n\"Ocupado\" → mañana/tarde preferencia → Paso 3\n\"¿Robot?\" → \"IA de Crestview. ¿Te aparto un horario?\"\n\"No me interesa\" → \"No hay problema. Que tengas excelente día.\" Fin.\n\n# REGLAS DURAS\n- NUNCA llames createBooking sin sí explícito.\n- NUNCA ofrezcas devolución de llamada.\n- NUNCA inventes datos de mercado.\n- NUNCA uses año distinto al de {{system__time_utc}}.\n- NUNCA hables más de 25 palabras sin pausar.\n- Buzón → \"Hola {{first_name}}, Alejandra de Crestview. Te marco una vez más. Hablamos pronto.\"\n- Llamada menos de 3 minutos.\n- Mientras herramienta corre: di un segundito — nunca silencio.",
+        "llm": "gpt-4o",
+        "temperature": 0.5,
+        "tools": [
+          {
+            "type": "webhook",
+            "name": "getAvailableSlots",
+            "description": "Obtiene slots disponibles de Cal.com. Llama cuando el prospecto esté listo para elegir hora. Devuelve slots en ISO 8601 UTC. SIEMPRE llama antes de agendar.",
+            "api_schema": {
+              "url": "https://crestview-callback.vercel.app/api/cal/lookup-slots",
+              "method": "POST",
+              "request_headers": {"Content-Type": "application/json"},
+              "request_body_schema": {
+                "type": "object",
+                "properties": {
+                  "start": {"type": "string", "description": "ISO 8601 inicio de ventana de búsqueda UTC."},
+                  "end": {"type": "string", "description": "ISO 8601 fin de ventana. Por defecto start+14 días."},
+                  "timeZone": {"type": "string", "description": "Zona IANA del prospecto."}
+                },
+                "required": ["start"]
+              }
+            },
+            "response_timeout_secs": 10
+          },
+          {
+            "type": "webhook",
+            "name": "createBooking",
+            "description": "Agenda una consulta en Cal.com. Llama SOLO después de que el prospecto diga sí explícito a un slot específico.",
+            "api_schema": {
+              "url": "https://crestview-callback.vercel.app/api/cal/create-booking",
+              "method": "POST",
+              "request_headers": {"Content-Type": "application/json"},
+              "request_body_schema": {
+                "type": "object",
+                "properties": {
+                  "start": {"type": "string", "description": "ISO 8601 UTC exacto de getAvailableSlots."},
+                  "name": {"type": "string", "description": "Nombre completo del prospecto."},
+                  "email": {"type": "string", "description": "Correo del prospecto."},
+                  "timeZone": {"type": "string", "description": "Zona IANA del prospecto."},
+                  "language": {"type": "string", "description": "en o es."}
+                },
+                "required": ["start", "name", "email"]
+              }
+            },
+            "response_timeout_secs": 10
+          },
+          {
+            "type": "webhook",
+            "name": "rescheduleBooking",
+            "description": "Reagendar una cita existente. Llama si el prospecto quiere cambiar de hora.",
+            "api_schema": {
+              "url": "https://crestview-callback.vercel.app/api/cal/reschedule-booking",
+              "method": "POST",
+              "request_headers": {"Content-Type": "application/json"},
+              "request_body_schema": {
+                "type": "object",
+                "properties": {
+                  "uid": {"type": "string", "description": "uid de la reserva de createBooking."},
+                  "start": {"type": "string", "description": "Nuevo ISO 8601 UTC."},
+                  "timeZone": {"type": "string", "description": "Zona IANA del prospecto."},
+                  "reason": {"type": "string", "description": "Razón breve."}
+                },
+                "required": ["uid", "start"]
+              }
+            },
+            "response_timeout_secs": 10
+          },
+          {
+            "type": "webhook",
+            "name": "cancelBooking",
+            "description": "Cancela una cita existente. Solo llama si el prospecto lo pide explícitamente.",
+            "api_schema": {
+              "url": "https://crestview-callback.vercel.app/api/cal/cancel-booking",
+              "method": "POST",
+              "request_headers": {"Content-Type": "application/json"},
+              "request_body_schema": {
+                "type": "object",
+                "properties": {
+                  "uid": {"type": "string", "description": "uid de la reserva a cancelar."},
+                  "reason": {"type": "string", "description": "Razón breve."}
+                },
+                "required": ["uid"]
+              }
+            },
+            "response_timeout_secs": 10
+          }
+        ]
+      }
+    },
+    "tts": {
+      "voice_id": "9Godp7dNohUvXk6qp0gS",
+      "model_id": "eleven_multilingual_v2",
+      "stability": 0.5,
+      "similarity_boost": 0.85,
+      "speed": 1.0
+    },
+    "turn": {
+      "turn_timeout": 5.0,
+      "turn_eagerness": "normal"
+    },
+    "conversation": {
+      "max_duration_seconds": 600
+    }
+  }
+}

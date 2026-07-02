@@ -1,13 +1,22 @@
-// Vercel serverless handler — places an outbound call via Telnyx Voice AI
-// directly, picking the EN or ES-MX assistant based on the form's language.
+// Vercel serverless handler — places an outbound callback call.
 //
-// Required env vars (Production):
-//   TELNYX_API_KEY              — Bearer token
-//   TELNYX_FROM_NUMBER          — E.164 caller ID, must belong to your account
-//   TELNYX_ASSISTANT_ID_EN      — English assistant id
-//   TELNYX_ASSISTANT_ID_ES_MX   — Spanish (Mexico) assistant id
-//   TELNYX_CONNECTION_ID_EN     — TeXML app id bound to the EN assistant
-//   TELNYX_CONNECTION_ID_ES_MX  — TeXML app id bound to the ES-MX assistant
+// VOICE_PROVIDER controls which telephony backend is used:
+//   "telnyx"  (default) — Telnyx Voice AI
+//   "vonage"             — Vonage Voice API + ElevenLabs Conversational AI via SIP
+//
+// Telnyx env vars:
+//   TELNYX_API_KEY, TELNYX_FROM_NUMBER
+//   TELNYX_ASSISTANT_ID_EN, TELNYX_ASSISTANT_ID_ES_MX
+//   TELNYX_CONNECTION_ID_EN, TELNYX_CONNECTION_ID_ES_MX
+//
+// Vonage env vars:
+//   VONAGE_APPLICATION_ID          — Vonage Voice Application ID
+//   VONAGE_PRIVATE_KEY             — RSA private key for JWT (multiline, \n-escaped)
+//   VONAGE_FROM_NUMBER             — E.164 caller ID (e.g. 17735425943)
+//   VONAGE_AGENT_ID_EN             — ElevenLabs EN agent id (baked into NCCO SIP URI)
+//   VONAGE_AGENT_ID_ES_MX          — ElevenLabs ES-MX agent id
+
+import { createSign } from "node:crypto"
 
 export const config = { api: { bodyParser: false } }
 
@@ -23,11 +32,42 @@ async function readJsonBody(req) {
   })
 }
 
-export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" })
+function buildDynamicVariables(body) {
+  const fullName = String(body.name || "").trim()
+  const nameParts = fullName.split(/\s+/).filter(Boolean)
+  const firstName = nameParts[0] || "there"
+  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : ""
+  const state = String(body.state || "").trim() || "your area"
+  const email = String(body.email || "").trim()
+  return {
+    lead_first_name: firstName,
+    lead_last_name: lastName,
+    lead_email: email,
+    lead_full_name: fullName || "Valued Customer",
+    lead_state: state,
+    full_name: fullName || "Cliente",
+    first_name: firstName,
+    state,
+    email,
   }
+}
 
+function makeVonageJwt(appId, privateKey) {
+  const now = Math.floor(Date.now() / 1000)
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url")
+  const payload = Buffer.from(JSON.stringify({
+    application_id: appId,
+    iat: now,
+    jti: `cb-${now}-${Math.random().toString(36).slice(2)}`,
+    exp: now + 300,
+  })).toString("base64url")
+  const sig = createSign("RSA-SHA256")
+    .update(`${header}.${payload}`)
+    .sign(privateKey, "base64url")
+  return `${header}.${payload}.${sig}`
+}
+
+async function handleTelnyx(body, res) {
   const apiKey = (process.env.TELNYX_API_KEY || "").trim()
   const fromNumber = (process.env.TELNYX_FROM_NUMBER || "").trim()
   const assistantEn = (process.env.TELNYX_ASSISTANT_ID_EN || "").trim()
@@ -39,104 +79,205 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Telnyx integration is not configured" })
   }
 
+  const isEs = body.language === "es-MX"
+  const language = isEs ? "es-MX" : "en-US"
+  const assistantId = isEs ? assistantEs : assistantEn
+  const connectionId = isEs ? connectionEs : connectionEn
+
+  const to = String(body.phone || "").trim()
+  if (!/^\+\d{8,15}$/.test(to)) {
+    return res.status(400).json({ error: "Invalid phone number" })
+  }
+
+  const dynamicVariables = buildDynamicVariables(body)
+  if (
+    typeof body.timezone === "string" &&
+    body.timezone.length > 0 &&
+    body.timezone.length <= 64 &&
+    /^[A-Za-z_+\-/]+$/.test(body.timezone)
+  ) {
+    dynamicVariables.timezone = body.timezone
+  }
+
+  const telnyxBody = {
+    connection_id: connectionId,
+    to,
+    from: fromNumber,
+    stream_track: "both_tracks",
+    answering_machine_detection: "premium",
+    timeout_secs: 30,
+    time_limit_secs: 600,
+    assistant: {
+      id: assistantId,
+      dynamic_variables: dynamicVariables,
+    },
+  }
+
+  const response = await fetch("https://api.telnyx.com/v2/calls", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(telnyxBody),
+  })
+
+  const rawText = await response.text()
+  let data = {}
+  try { data = JSON.parse(rawText) } catch { /* non-JSON */ }
+
+  if (!response.ok) {
+    const detail =
+      data?.errors?.[0]?.detail ||
+      data?.errors?.[0]?.title ||
+      data?.error ||
+      data?.message ||
+      (rawText && rawText.slice(0, 240)) ||
+      `Telnyx returned ${response.status}`
+    return res.status(response.status).json({ error: detail, upstream_status: response.status })
+  }
+
+  return res.status(200).json({
+    status: "ok",
+    provider: "telnyx",
+    language,
+    call_control_id: data?.data?.call_control_id || null,
+    call_leg_id: data?.data?.call_leg_id || null,
+  })
+}
+
+async function handleVonage(body, res) {
+  const appId = (process.env.VONAGE_APPLICATION_ID || "").trim()
+  const privateKeyRaw = (process.env.VONAGE_PRIVATE_KEY || "").trim()
+  const fromNumber = (process.env.VONAGE_FROM_NUMBER || "17735425943").trim()
+  const agentEn = (process.env.VONAGE_AGENT_ID_EN || "").trim()
+  const agentEs = (process.env.VONAGE_AGENT_ID_ES_MX || "").trim()
+
+  if (!appId || !privateKeyRaw) {
+    return res.status(500).json({ error: "Vonage integration is not configured" })
+  }
+
+  const isEs = body.language === "es-MX"
+  const language = isEs ? "es-MX" : "en-US"
+  const agentId = isEs ? agentEs : agentEn
+
+  const to = String(body.phone || "").trim()
+  if (!/^\+\d{8,15}$/.test(to)) {
+    return res.status(400).json({ error: "Invalid phone number" })
+  }
+
+  const dynamicVars = buildDynamicVariables(body)
+  if (
+    typeof body.timezone === "string" &&
+    body.timezone.length > 0 &&
+    body.timezone.length <= 64 &&
+    /^[A-Za-z_+\-/]+$/.test(body.timezone)
+  ) {
+    dynamicVars.timezone = body.timezone
+  }
+
+  // ElevenLabs extracts X-* SIP headers as {{sip_<name>}} dynamic variables.
+  // Pass lead context so the agent greets by name without a webhook lookup.
+  // X-Lead-First-Name → {{sip_lead_first_name}}, etc.
+  const sipHeaders = {
+    "X-Lead-First-Name": dynamicVars.lead_first_name,
+    "X-Lead-Last-Name": dynamicVars.lead_last_name,
+    "X-Lead-Email": dynamicVars.lead_email,
+    "X-Lead-Full-Name": dynamicVars.lead_full_name,
+    "X-Lead-State": dynamicVars.lead_state,
+    "X-First-Name": dynamicVars.first_name,
+    "X-Full-Name": dynamicVars.full_name,
+    "X-State": dynamicVars.state,
+    "X-Email": dynamicVars.email,
+  }
+  if (dynamicVars.timezone) {
+    sipHeaders["X-Timezone"] = dynamicVars.timezone
+  }
+
+  // The ElevenLabs SIP URI, with agent_id as a hint for multi-agent setups.
+  // In our case the phone number is already assigned to the EN agent;
+  // for ES we could use a separate EL phone number or override via header.
+  const sipUri = `sip:+${fromNumber}@sip.rtc.elevenlabs.io:5060`
+
+  // Encode NCCO answer URL with dynamic vars as query params so vonage-ncco
+  // can pass them to ElevenLabs via the SIP connect headers field.
+  const nccoBase = "https://crestview-callback.vercel.app/api/vonage-ncco"
+  const nccoParams = new URLSearchParams({
+    first_name: dynamicVars.first_name,
+    full_name: dynamicVars.full_name,
+    email: dynamicVars.email,
+    state: dynamicVars.state,
+    lead_first_name: dynamicVars.lead_first_name,
+    lead_email: dynamicVars.lead_email,
+    lead_state: dynamicVars.lead_state,
+    agent_id: agentId || "",
+    language: isEs ? "es" : "en",
+  })
+  if (dynamicVars.timezone) nccoParams.set("timezone", dynamicVars.timezone)
+  const answerUrl = `${nccoBase}?${nccoParams.toString()}`
+
+  // Unescape the private key (env vars replace \n with literal backslash-n)
+  const privateKey = privateKeyRaw.replace(/\\n/g, "\n")
+
+  const jwt = makeVonageJwt(appId, privateKey)
+
+  const toNumber = to.replace(/^\+/, "")
+
+  const vonageBody = {
+    to: [{ type: "phone", number: toNumber }],
+    from: { type: "phone", number: fromNumber },
+    answer_url: [answerUrl],
+    answer_method: "GET",
+    event_url: ["https://crestview-callback.vercel.app/api/vonage-event"],
+    event_method: "POST",
+    length_timer: 600,
+    ringing_timer: 30,
+  }
+
+  const response = await fetch("https://api.nexmo.com/v1/calls", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(vonageBody),
+  })
+
+  const rawText = await response.text()
+  let data = {}
+  try { data = JSON.parse(rawText) } catch { /* non-JSON */ }
+
+  if (!response.ok) {
+    const detail =
+      data?.description ||
+      data?.error_title ||
+      data?.message ||
+      (rawText && rawText.slice(0, 240)) ||
+      `Vonage returned ${response.status}`
+    return res.status(response.status).json({ error: detail, upstream_status: response.status })
+  }
+
+  return res.status(200).json({
+    status: "ok",
+    provider: "vonage",
+    language,
+    call_uuid: data?.uuid || null,
+  })
+}
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" })
+  }
+
   try {
     const body = await readJsonBody(req)
+    const provider = (process.env.VOICE_PROVIDER || "telnyx").trim().toLowerCase()
 
-    const isEs = body.language === "es-MX"
-    const language = isEs ? "es-MX" : "en-US"
-    const assistantId = isEs ? assistantEs : assistantEn
-    const connectionId = isEs ? connectionEs : connectionEn
-
-    const to = String(body.phone || "").trim()
-    if (!/^\+\d{8,15}$/.test(to)) {
-      return res.status(400).json({ error: "Invalid phone number" })
+    if (provider === "vonage") {
+      return await handleVonage(body, res)
     }
-
-    // Pass lead context to the assistant as dynamic variables so it greets by
-    // name, references their state, and personalises the conversation.
-    // We send BOTH naming conventions ({{first_name}} and {{lead_first_name}})
-    // because the existing EN assistant template uses {{lead_first_name}} in
-    // its greeting while the ES assistant uses {{first_name}}. Sending both is
-    // belt-and-suspenders so neither assistant ever lands on a null/placeholder.
-    const fullName = String(body.name || "").trim()
-    const nameParts = fullName.split(/\s+/).filter(Boolean)
-    const firstName = nameParts[0] || "there"
-    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : ""
-    const state = String(body.state || "").trim() || "your area"
-    const email = String(body.email || "").trim()
-    const dynamicVariables = {
-      // ES-style naming (used by the Mexican Spanish assistant)
-      full_name: fullName || "Valued Customer",
-      first_name: firstName,
-      state,
-      email,
-      // EN-style naming (used by the existing EN assistant template)
-      lead_first_name: firstName,
-      lead_last_name: lastName,
-      lead_email: email,
-      lead_full_name: fullName || "Valued Customer",
-      lead_state: state,
-    }
-
-    // Optional IANA timezone for downstream booking. Validate shape, drop if malformed.
-    let timezone = null
-    if (
-      typeof body.timezone === "string" &&
-      body.timezone.length > 0 &&
-      body.timezone.length <= 64 &&
-      /^[A-Za-z_+\-/]+$/.test(body.timezone)
-    ) {
-      timezone = body.timezone
-      dynamicVariables.timezone = timezone
-    }
-
-    const telnyxBody = {
-      connection_id: connectionId,
-      to,
-      from: fromNumber,
-      stream_track: "both_tracks",
-      answering_machine_detection: "premium",
-      timeout_secs: 30,
-      time_limit_secs: 600,
-      assistant: {
-        id: assistantId,
-        dynamic_variables: dynamicVariables,
-      },
-    }
-
-    const response = await fetch("https://api.telnyx.com/v2/calls", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(telnyxBody),
-    })
-
-    const rawText = await response.text()
-    let data = {}
-    try { data = JSON.parse(rawText) } catch { /* non-JSON */ }
-
-    if (!response.ok) {
-      const detail =
-        data?.errors?.[0]?.detail ||
-        data?.errors?.[0]?.title ||
-        data?.error ||
-        data?.message ||
-        (rawText && rawText.slice(0, 240)) ||
-        `Telnyx returned ${response.status}`
-      return res.status(response.status).json({
-        error: detail,
-        upstream_status: response.status,
-      })
-    }
-
-    return res.status(200).json({
-      status: "ok",
-      language,
-      call_control_id: data?.data?.call_control_id || null,
-      call_leg_id: data?.data?.call_leg_id || null,
-    })
+    return await handleTelnyx(body, res)
   } catch (error) {
     return res.status(500).json({ error: error?.message || "Failed to start callback" })
   }
