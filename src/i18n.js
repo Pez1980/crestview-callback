@@ -5,13 +5,42 @@ import { MX_STATES_ES, MX_STATE_TIMEZONES } from './mx-locations'
 
 export { MX_STATES_ES, MX_STATE_TIMEZONES }
 
-// Resolve an IANA timezone for the lead so Cal.com books in their local time.
-// MX leads: state → tz from authoritative map. EN leads: fall back to the
-// browser's resolved timezone (more accurate than US-state→tz, which is
-// multi-zone for ~12 states).
+// US states + Canadian provinces → dominant IANA timezone. Multi-zone states
+// use the zone covering most of the population.
+export const NA_STATE_TIMEZONES = {
+  Alabama: 'America/Chicago', Alaska: 'America/Anchorage', Arizona: 'America/Phoenix',
+  Arkansas: 'America/Chicago', California: 'America/Los_Angeles', Colorado: 'America/Denver',
+  Connecticut: 'America/New_York', Delaware: 'America/New_York', Florida: 'America/New_York',
+  Georgia: 'America/New_York', Hawaii: 'Pacific/Honolulu', Idaho: 'America/Boise',
+  Illinois: 'America/Chicago', Indiana: 'America/Indiana/Indianapolis', Iowa: 'America/Chicago',
+  Kansas: 'America/Chicago', Kentucky: 'America/New_York', Louisiana: 'America/Chicago',
+  Maine: 'America/New_York', Maryland: 'America/New_York', Massachusetts: 'America/New_York',
+  Michigan: 'America/Detroit', Minnesota: 'America/Chicago', Mississippi: 'America/Chicago',
+  Missouri: 'America/Chicago', Montana: 'America/Denver', Nebraska: 'America/Chicago',
+  Nevada: 'America/Los_Angeles', 'New Hampshire': 'America/New_York', 'New Jersey': 'America/New_York',
+  'New Mexico': 'America/Denver', 'New York': 'America/New_York', 'North Carolina': 'America/New_York',
+  'North Dakota': 'America/Chicago', Ohio: 'America/New_York', Oklahoma: 'America/Chicago',
+  Oregon: 'America/Los_Angeles', Pennsylvania: 'America/New_York', 'Rhode Island': 'America/New_York',
+  'South Carolina': 'America/New_York', 'South Dakota': 'America/Chicago', Tennessee: 'America/Chicago',
+  Texas: 'America/Chicago', Utah: 'America/Denver', Vermont: 'America/New_York',
+  Virginia: 'America/New_York', Washington: 'America/Los_Angeles', 'West Virginia': 'America/New_York',
+  Wisconsin: 'America/Chicago', Wyoming: 'America/Denver',
+  Alberta: 'America/Edmonton', 'British Columbia': 'America/Vancouver', Manitoba: 'America/Winnipeg',
+  'New Brunswick': 'America/Moncton', 'Newfoundland and Labrador': 'America/St_Johns',
+  'Nova Scotia': 'America/Halifax', Ontario: 'America/Toronto', 'Prince Edward Island': 'America/Halifax',
+  Quebec: 'America/Toronto', Saskatchewan: 'America/Regina',
+}
+
+// Resolve an IANA timezone for the lead so booking happens in their local time.
+// The selected state/province wins — the form promises "so we match your
+// timezone", and a traveler's browser zone (e.g. filling the form from Dubai)
+// must not leak into the offered slots. Browser zone is only the fallback.
 export function resolveTimezone(lang, state) {
   if (lang === 'es' && state && MX_STATE_TIMEZONES[state]) {
     return MX_STATE_TIMEZONES[state]
+  }
+  if (state && NA_STATE_TIMEZONES[state]) {
+    return NA_STATE_TIMEZONES[state]
   }
   if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
     try {
