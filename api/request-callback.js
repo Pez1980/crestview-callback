@@ -157,7 +157,7 @@ function makeVonageJwt(appId, privateKey) {
 async function handleVonage(body, res) {
   const appId = (process.env.VONAGE_APPLICATION_ID || "").trim()
   const privateKeyRaw = (process.env.VONAGE_PRIVATE_KEY || "").trim()
-  const fromNumber = (process.env.VONAGE_FROM_NUMBER || "17735425943").trim()
+  const fromNumber = "13128008565" // Swiftleads registered pool DID; +17735425943 is spam-flagged
 
   if (!appId || !privateKeyRaw) {
     return res.status(500).json({ error: "Vonage integration is not configured" })
