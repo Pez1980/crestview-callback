@@ -2,18 +2,24 @@
 //
 // VOICE_PROVIDER controls which telephony backend is used:
 //   "telnyx"  (default) — Telnyx Voice AI
-//   "vonage"             — ElevenLabs agent dials out over its Vonage SIP trunk
+//   "vonage"             — Vonage Voice API dials the lead, NCCO SIP-connects to
+//                          the ElevenLabs agent (lead context via X-* SIP headers,
+//                          which ElevenLabs exposes as {{sip_x_*}} dynamic vars).
+//                          NOTE: EL-originated calls over the outbound trunk were
+//                          tried and 403 at sip.nexmo.com; Vonage-origination is
+//                          the proven leg (see README).
 //
 // Telnyx env vars:
 //   TELNYX_API_KEY, TELNYX_FROM_NUMBER
 //   TELNYX_ASSISTANT_ID_EN, TELNYX_ASSISTANT_ID_ES_MX
 //   TELNYX_CONNECTION_ID_EN, TELNYX_CONNECTION_ID_ES_MX
 //
-// Vonage (via ElevenLabs) env vars:
-//   ELEVENLABS_API_KEY             — ElevenLabs workspace API key
-//   ELEVENLABS_PHONE_NUMBER_ID     — EL phone number id (SIP trunk over sip.nexmo.com)
-//   ELEVENLABS_AGENT_ID_EN         — EN agent id (fallback: VONAGE_AGENT_ID_EN)
-//   ELEVENLABS_AGENT_ID_ES_MX      — ES-MX agent id (fallback: VONAGE_AGENT_ID_ES_MX)
+// Vonage env vars:
+//   VONAGE_APPLICATION_ID          — Vonage Voice Application ID
+//   VONAGE_PRIVATE_KEY             — RSA private key for JWT (multiline, \n-escaped)
+//   VONAGE_FROM_NUMBER             — E.164 caller ID (e.g. 17735425943)
+
+import { createSign } from "node:crypto"
 
 export const config = { api: { bodyParser: false } }
 
@@ -130,24 +136,35 @@ async function handleTelnyx(body, res) {
   })
 }
 
-// Vonage provider = ElevenLabs originates the call over its Vonage SIP trunk
-// (POST /v1/convai/sip-trunk/outbound-call). The trunk on the EL phone number
-// is already configured against sip.nexmo.com with credentials, so no NCCO /
-// answer-webhook leg is involved, and agent_id is chosen per call — the same
-// number serves both the EN and ES-MX agents.
-async function handleVonage(body, res) {
-  const apiKey = (process.env.ELEVENLABS_API_KEY || "").trim()
-  const phoneNumberId = (process.env.ELEVENLABS_PHONE_NUMBER_ID || "").trim()
-  const agentEn = (process.env.ELEVENLABS_AGENT_ID_EN || process.env.VONAGE_AGENT_ID_EN || "").trim()
-  const agentEs = (process.env.ELEVENLABS_AGENT_ID_ES_MX || process.env.VONAGE_AGENT_ID_ES_MX || "").trim()
+function makeVonageJwt(appId, privateKey) {
+  const now = Math.floor(Date.now() / 1000)
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url")
+  const payload = Buffer.from(JSON.stringify({
+    application_id: appId,
+    iat: now,
+    jti: `cb-${now}-${Math.random().toString(36).slice(2)}`,
+    exp: now + 300,
+  })).toString("base64url")
+  const sig = createSign("RSA-SHA256")
+    .update(`${header}.${payload}`)
+    .sign(privateKey, "base64url")
+  return `${header}.${payload}.${sig}`
+}
 
-  if (!apiKey || !phoneNumberId || !agentEn) {
-    return res.status(500).json({ error: "ElevenLabs/Vonage integration is not configured" })
+// Vonage dials the lead; when they answer, the /api/vonage-ncco webhook returns
+// an NCCO that SIP-connects the call to the ElevenLabs agent for their language.
+// Lead context travels as query params → X-* SIP headers → {{sip_x_*}} vars.
+async function handleVonage(body, res) {
+  const appId = (process.env.VONAGE_APPLICATION_ID || "").trim()
+  const privateKeyRaw = (process.env.VONAGE_PRIVATE_KEY || "").trim()
+  const fromNumber = (process.env.VONAGE_FROM_NUMBER || "17735425943").trim()
+
+  if (!appId || !privateKeyRaw) {
+    return res.status(500).json({ error: "Vonage integration is not configured" })
   }
 
   const isEs = body.language === "es-MX"
   const language = isEs ? "es-MX" : "en-US"
-  const agentId = (isEs && agentEs) ? agentEs : agentEn
 
   const to = String(body.phone || "").trim()
   if (!/^\+\d{8,15}$/.test(to)) {
@@ -164,42 +181,67 @@ async function handleVonage(body, res) {
     dynamicVars.timezone = body.timezone
   }
 
-  const response = await fetch("https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call", {
+  const nccoBase = "https://crestview-callback.vercel.app/api/vonage-ncco"
+  const nccoParams = new URLSearchParams({
+    first_name: dynamicVars.first_name,
+    full_name: dynamicVars.full_name,
+    email: dynamicVars.email,
+    state: dynamicVars.state,
+    lead_first_name: dynamicVars.lead_first_name,
+    lead_last_name: dynamicVars.lead_last_name,
+    lead_full_name: dynamicVars.lead_full_name,
+    lead_email: dynamicVars.lead_email,
+    lead_phone: dynamicVars.lead_phone,
+    lead_state: dynamicVars.lead_state,
+    language: isEs ? "es" : "en",
+  })
+  if (dynamicVars.timezone) nccoParams.set("timezone", dynamicVars.timezone)
+  const answerUrl = `${nccoBase}?${nccoParams.toString()}`
+
+  // Unescape the private key (env vars replace \n with literal backslash-n)
+  const privateKey = privateKeyRaw.replace(/\\n/g, "\n")
+
+  const jwt = makeVonageJwt(appId, privateKey)
+
+  const vonageBody = {
+    to: [{ type: "phone", number: to.replace(/^\+/, "") }],
+    from: { type: "phone", number: fromNumber },
+    answer_url: [answerUrl],
+    answer_method: "GET",
+    event_url: ["https://crestview-callback.vercel.app/api/vonage-event"],
+    event_method: "POST",
+    length_timer: 600,
+    ringing_timer: 30,
+  }
+
+  const response = await fetch("https://api.nexmo.com/v1/calls", {
     method: "POST",
     headers: {
-      "xi-api-key": apiKey,
+      Authorization: `Bearer ${jwt}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      agent_id: agentId,
-      agent_phone_number_id: phoneNumberId,
-      to_number: to,
-      conversation_initiation_client_data: {
-        dynamic_variables: dynamicVars,
-      },
-    }),
+    body: JSON.stringify(vonageBody),
   })
 
   const rawText = await response.text()
   let data = {}
   try { data = JSON.parse(rawText) } catch { /* non-JSON */ }
 
-  if (!response.ok || data?.success === false) {
+  if (!response.ok) {
     const detail =
-      data?.detail?.message ||
-      (Array.isArray(data?.detail) ? data.detail.map((d) => d?.msg).filter(Boolean).join("; ") : data?.detail) ||
+      data?.description ||
+      data?.error_title ||
       data?.message ||
       (rawText && rawText.slice(0, 240)) ||
-      `ElevenLabs returned ${response.status}`
-    return res.status(response.ok ? 502 : response.status).json({ error: detail, upstream_status: response.status })
+      `Vonage returned ${response.status}`
+    return res.status(response.status).json({ error: detail, upstream_status: response.status })
   }
 
   return res.status(200).json({
     status: "ok",
     provider: "vonage",
     language,
-    conversation_id: data?.conversation_id || null,
-    call_uuid: data?.sip_call_id || data?.callSid || null,
+    call_uuid: data?.uuid || null,
   })
 }
 
