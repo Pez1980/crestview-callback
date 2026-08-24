@@ -245,6 +245,35 @@ async function handleVonage(body, res) {
   })
 }
 
+// Save the lead to LeadTracker's CRM immediately on submission — before the
+// call is even placed. Without this, a prospect who doesn't answer or hangs
+// up before booking never existed anywhere: the CRM only ever got a lead if
+// the AI call connected AND completed a booking.
+async function saveLeadToCrm(body) {
+  // Vercel serverless functions can freeze/terminate right after the response
+  // is sent, so a true unawaited background call risks never completing.
+  // Await it, but bounded — this must never meaningfully delay the callback.
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 4000)
+  try {
+    await fetch("https://leadtrackerai.com/api/public/cta/swiftleads/quick-lead", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: body.name,
+        email: body.email,
+        phone: body.phone,
+        state: body.state,
+      }),
+      signal: controller.signal,
+    })
+  } catch (err) {
+    console.error("[crm-lead] save failed", err?.message)
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" })
@@ -252,6 +281,11 @@ export default async function handler(req, res) {
 
   try {
     const body = await readJsonBody(req)
+
+    // A slow or failed CRM save must never block or fail the callback itself
+    // — the call is the time-sensitive part. Bounded above at 4s.
+    await saveLeadToCrm(body)
+
     const provider = (process.env.VOICE_PROVIDER || "telnyx").trim().toLowerCase()
 
     if (provider === "vonage") {
