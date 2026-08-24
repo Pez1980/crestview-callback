@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     const ltRes = await fetch(LT_BOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, phone, start: match.start, timezone: timeZone }),
+      body: JSON.stringify({ name, email, phone, start: match.start, timezone: timeZone, ...(body.demo ? { demo: true } : {}) }),
     })
     const ltData = await ltRes.json().catch(() => ({}))
     if (!ltRes.ok) {

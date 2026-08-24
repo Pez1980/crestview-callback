@@ -49,10 +49,16 @@ function spoken(dateParts, timeZone) {
 
 export function pickOptions(slots, timeZone, limitDays = 2, perDay = 2) {
   const byDay = new Map()
-  for (const s of slots) {
-    const p = formatInZone(s.start, timeZone)
+  const all = slots.map((s) => ({ start: s.start, ...formatInZone(s.start, timeZone) }))
+  // Only offer civil hours in the CALLER's zone (9:00–18:59 local); the host
+  // calendar spans more, but nobody wants a 6am consultation offer.
+  const civil = all.filter((s) => {
+    const h = Number(s.time.slice(0, 2))
+    return h >= 9 && h < 19
+  })
+  for (const p of (civil.length ? civil : all)) {
     if (!byDay.has(p.date)) byDay.set(p.date, [])
-    byDay.get(p.date).push({ start: s.start, ...p })
+    byDay.get(p.date).push(p)
   }
   const options = []
   for (const [, daySlots] of [...byDay.entries()].slice(0, limitDays)) {
