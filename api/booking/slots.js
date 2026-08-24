@@ -25,9 +25,9 @@ export function formatInZone(iso, timeZone) {
   }
 }
 
-function zoneLabel(timeZone) {
+function zoneLabel(timeZone, locale) {
   try {
-    const p = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longGeneric" })
+    const p = new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: "longGeneric" })
       .formatToParts(new Date())
       .find((x) => x.type === "timeZoneName")
     return p ? p.value : timeZone
@@ -36,18 +36,28 @@ function zoneLabel(timeZone) {
   }
 }
 
-function spoken(dateParts, timeZone, withZone) {
+function spoken(dateParts, timeZone, withZone, lang) {
+  const es = lang === "es"
+  const locale = es ? "es-MX" : "en-US"
   const [h, m] = dateParts.time.split(":").map(Number)
-  const ampm = h >= 12 ? "in the afternoon" : "in the morning"
   const h12 = h % 12 === 0 ? 12 : h % 12
   const minutes = m === 0 ? "" : `:${String(m).padStart(2, "0")}`
   const [y, mo, d] = dateParts.date.split("-").map(Number)
-  const month = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" })
-    .format(new Date(Date.UTC(y, mo - 1, d)))
-  const base = `${dateParts.weekday}, ${month} ${d} at ${h12}${minutes} ${ampm}`
+  const stamp = new Date(Date.UTC(y, mo - 1, d))
+  const month = new Intl.DateTimeFormat(locale, { month: "long", timeZone: "UTC" }).format(stamp)
+  let weekday = new Intl.DateTimeFormat(locale, { weekday: "long", timeZone: "UTC" }).format(stamp)
+  weekday = weekday.charAt(0).toUpperCase() + weekday.slice(1)
+  let base
+  if (es) {
+    const period = h < 12 ? "de la mañana" : "de la tarde"
+    base = `${weekday} ${d} de ${month} a las ${h12}${minutes} ${period}`
+  } else {
+    const period = h >= 12 ? "in the afternoon" : "in the morning"
+    base = `${weekday}, ${month} ${d} at ${h12}${minutes} ${period}`
+  }
   // Zone only on the first option — repeating "Eastern Time" after every
   // choice sounds robotic when the agent reads the list verbatim.
-  return withZone ? `${base}, ${zoneLabel(timeZone)}` : base
+  return withZone ? `${base}, ${zoneLabel(timeZone, locale)}` : base
 }
 
 export function pickOptions(slots, timeZone, limitDays = 2, perDay = 2) {
@@ -82,6 +92,7 @@ export function pickOptions(slots, timeZone, limitDays = 2, perDay = 2) {
 export default async function handler(req, res) {
   const url = new URL(req.url || "", "https://crestview-callback.vercel.app")
   const timeZone = url.searchParams.get("timezone") || "America/New_York"
+  const lang = url.searchParams.get("lang") === "es" ? "es" : "en"
 
   try {
     const upstream = await fetch(LT_SLOTS_URL)
@@ -95,7 +106,7 @@ export default async function handler(req, res) {
       option: i + 1,
       date: o.date,
       time: o.time,
-      say: spoken(o, timeZone, i === 0),
+      say: spoken(o, timeZone, i === 0, lang),
     }))
     return res.status(200).json({ timezone: timeZone, options })
   } catch (err) {
