@@ -18,8 +18,8 @@ export default async function handler(req, res) {
   const language = q.get("language") || "en"
   const timezone = q.get("timezone") || ""
 
-  // ElevenLabs SIP — the phone number identifier must match what's registered
-  const sipUri = "sip:+17735425943@sip.rtc.elevenlabs.io"
+  // ElevenLabs SIP — phone number must match the registered E.164, port 5060 TCP
+  const sipUri = "sip:+17735425943@sip.rtc.elevenlabs.io:5060;transport=tcp"
 
   const sipHeaders = {
     "X-Lead-First-Name": leadFirstName,
