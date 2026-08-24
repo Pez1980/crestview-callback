@@ -11,7 +11,7 @@ within seconds of submission and books a Cal.com consultation.
 | Value | Path |
 |---|---|
 | `telnyx` (default) | Telnyx `POST /v2/calls` with the Telnyx-hosted AI assistant (`telnyx-agent/`) |
-| `vonage` | ElevenLabs `POST /v1/convai/sip-trunk/outbound-call` — the EL agent dials out over its Vonage SIP trunk (`sip.nexmo.com`), agent picked per call by language (`vonage-agent/`) |
+| `vonage` | Vonage `POST /v1/calls` dials the lead; the answer NCCO (`api/vonage-ncco.js`) SIP-connects to the ElevenLabs agent, routed by language via the dialed EL number (`vonage-agent/`) |
 
 Switch with one command (flips the env var and redeploys — env changes only
 apply on a new deployment):
@@ -27,12 +27,16 @@ Moving the whole platform off Telnyx means flipping both.
 
 - Agents live in ElevenLabs: "Crestview Callback Agent EN" and "… ES-MX"
   (configs mirrored in `vonage-agent/*.json`, behavior parity with the Telnyx
-  assistants: same persona, 6-step Cal.com booking flow, same tool endpoints).
-- Both languages share one EL phone number (`ELEVENLABS_PHONE_NUMBER_ID`,
-  +17735425943); `agent_id` is chosen per call, so ES needs no second number.
-- Lead context is passed as `conversation_initiation_client_data.dynamic_variables`.
-- `api/vonage-ncco.js` / `api/vonage-event.js` are legacy from the abandoned
-  Vonage-originated NCCO→SIP approach, which never completed a call (every
-  attempt failed in 0–1s; ElevenLabs-originated calls replaced it Aug-2026).
-- Carriers reply SIP 403 to fictional numbers (e.g. +1500555xxxx) — a 403 on
-  the smoke-test number does not mean the trunk is broken.
+  assistants: same persona, 6-step booking flow — native LeadTracker
+  scheduling via `/api/public/cta/swiftleads`, not Cal.com).
+- Agent routing is by dialed EL number: EN = +17735425943, ES-MX =
+  +17735425944 (the ES number is an EL registration used purely as a routing
+  token — it is not a live DID).
+- Lead context travels as X-* SIP headers on the NCCO connect; ElevenLabs
+  exposes them as `{{sip_x_<header>}}` (X-Lead-First-Name →
+  `{{sip_x_lead_first_name}}`). The July 2026 failures were caused solely by
+  prompts using `{{sip_lead_*}}` (missing the `x_`).
+- Do NOT switch to ElevenLabs-originated outbound (`sip-trunk/outbound-call`):
+  Vonage's legacy `sip.nexmo.com` termination replies SIP 403 even with valid
+  api-key/secret digest credentials; the modern path needs a Programmable SIP
+  domain provisioned in the Vonage dashboard.
