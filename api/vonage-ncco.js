@@ -30,7 +30,9 @@ export default async function handler(req, res) {
   const leadPhone = q.get("lead_phone") || ""
   const leadState = q.get("lead_state") || state
   const language = q.get("language") || "en"
-  const timezone = q.get("timezone") || ""
+  // Always send a timezone: agent prompts reference {{sip_x_timezone}} and an
+  // absent dynamic variable hard-fails the ElevenLabs conversation.
+  const timezone = q.get("timezone") || "America/New_York"
 
   const elNumber = language === "es" ? EL_SIP_NUMBER_ES : EL_SIP_NUMBER_EN
   const sipUri = `sip:${elNumber}@sip.rtc.elevenlabs.io:5060;transport=tcp`

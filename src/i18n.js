@@ -31,7 +31,10 @@ export const US_STATES = [
   'New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio',
   'Oklahoma','Oregon','Pennsylvania','Rhode Island','South Carolina','South Dakota',
   'Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia',
-  'Wisconsin','Wyoming'
+  'Wisconsin','Wyoming',
+  // Canada
+  'Alberta','British Columbia','Manitoba','New Brunswick','Newfoundland and Labrador',
+  'Nova Scotia','Ontario','Prince Edward Island','Quebec','Saskatchewan'
 ]
 
 export const COPY = {
@@ -57,9 +60,9 @@ export const COPY = {
     labels: {
       name: 'Full name',
       email: 'Email',
-      state: 'State',
+      state: 'State / Province',
       stateHint: '— so we match your timezone',
-      statePlaceholder: 'Choose your state',
+      statePlaceholder: 'Choose your state or province',
       phone: 'Phone number',
     },
     placeholders: {

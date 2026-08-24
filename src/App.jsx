@@ -393,7 +393,7 @@ export default function App() {
                           key={lang}
                           international={false}
                           defaultCountry={phoneCountry}
-                          countries={['US', 'MX']}
+                          countries={['US', 'CA', 'MX']}
                           addInternationalOption={false}
                           countryCallingCodeEditable={false}
                           placeholder={t.placeholders.phone}
