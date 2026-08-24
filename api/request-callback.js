@@ -36,10 +36,12 @@ function buildDynamicVariables(body) {
   const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : ""
   const state = String(body.state || "").trim() || "your area"
   const email = String(body.email || "").trim()
+  const phone = String(body.phone || "").trim()
   return {
     lead_first_name: firstName,
     lead_last_name: lastName,
     lead_email: email,
+    lead_phone: phone,
     lead_full_name: fullName || "Valued Customer",
     lead_state: state,
     full_name: fullName || "Cliente",
