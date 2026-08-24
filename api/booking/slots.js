@@ -36,7 +36,7 @@ function zoneLabel(timeZone) {
   }
 }
 
-function spoken(dateParts, timeZone) {
+function spoken(dateParts, timeZone, withZone) {
   const [h, m] = dateParts.time.split(":").map(Number)
   const ampm = h >= 12 ? "in the afternoon" : "in the morning"
   const h12 = h % 12 === 0 ? 12 : h % 12
@@ -44,7 +44,10 @@ function spoken(dateParts, timeZone) {
   const [y, mo, d] = dateParts.date.split("-").map(Number)
   const month = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" })
     .format(new Date(Date.UTC(y, mo - 1, d)))
-  return `${dateParts.weekday}, ${month} ${d} at ${h12}${minutes} ${ampm}, ${zoneLabel(timeZone)}`
+  const base = `${dateParts.weekday}, ${month} ${d} at ${h12}${minutes} ${ampm}`
+  // Zone only on the first option — repeating "Eastern Time" after every
+  // choice sounds robotic when the agent reads the list verbatim.
+  return withZone ? `${base}, ${zoneLabel(timeZone)}` : base
 }
 
 export function pickOptions(slots, timeZone, limitDays = 2, perDay = 2) {
@@ -92,7 +95,7 @@ export default async function handler(req, res) {
       option: i + 1,
       date: o.date,
       time: o.time,
-      say: spoken(o, timeZone),
+      say: spoken(o, timeZone, i === 0),
     }))
     return res.status(200).json({ timezone: timeZone, options })
   } catch (err) {
