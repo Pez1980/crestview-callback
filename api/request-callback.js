@@ -1,6 +1,8 @@
 // Vercel serverless handler — places an outbound callback call.
 //
-// VOICE_PROVIDER controls which telephony backend is used:
+// VOICE_PROVIDER switches between two telephony stacks that are BOTH live and
+// in production. This is an evaluation of which performs better, not a
+// migration, so neither path may be allowed to rot and both are kept separate:
 //   "vonage"  (default) — Vonage Voice API dials the lead; /api/vonage-ncco then
 //                          asks LeadTracker for an NCCO that runs the callback
 //                          agent on Azure Voice Live + DragonHD, and falls back
@@ -8,7 +10,9 @@
 //                          NOTE: EL-originated calls over the outbound trunk were
 //                          tried and 403 at sip.nexmo.com; Vonage-origination is
 //                          the proven leg (see README).
-//   "telnyx"             — legacy Telnyx Voice AI, kept for rollback only.
+//   "telnyx"             — Telnyx Voice AI. Fully live; set VOICE_PROVIDER=telnyx
+//                          and this leg runs. `vonage` is only the fallback an
+//                          unset variable lands on.
 //
 // Telnyx env vars:
 //   TELNYX_API_KEY, TELNYX_FROM_NUMBER
@@ -296,8 +300,9 @@ export default async function handler(req, res) {
     // — the call is the time-sensitive part. Bounded above at 4s.
     const leadId = await saveLeadToCrm(body)
 
-    // Vonage is the live provider. Defaulting to Telnyx meant an environment
-    // that lost the variable silently dialled a backend we no longer run.
+    // Both providers are live; this only picks which leg a given call takes.
+    // The fallback is vonage so an environment that loses the variable stays on
+    // the leg carrying most traffic instead of silently switching provider.
     const provider = (process.env.VOICE_PROVIDER || "vonage").trim().toLowerCase()
 
     if (provider === "telnyx") {
