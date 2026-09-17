@@ -1,13 +1,14 @@
 // Vercel serverless handler — places an outbound callback call.
 //
 // VOICE_PROVIDER controls which telephony backend is used:
-//   "telnyx"  (default) — Telnyx Voice AI
-//   "vonage"             — Vonage Voice API dials the lead, NCCO SIP-connects to
-//                          the ElevenLabs agent (lead context via X-* SIP headers,
-//                          which ElevenLabs exposes as {{sip_x_*}} dynamic vars).
+//   "vonage"  (default) — Vonage Voice API dials the lead; /api/vonage-ncco then
+//                          asks LeadTracker for an NCCO that runs the callback
+//                          agent on Azure Voice Live + DragonHD, and falls back
+//                          to the ElevenLabs SIP trunk only if that mint fails.
 //                          NOTE: EL-originated calls over the outbound trunk were
 //                          tried and 403 at sip.nexmo.com; Vonage-origination is
 //                          the proven leg (see README).
+//   "telnyx"             — legacy Telnyx Voice AI, kept for rollback only.
 //
 // Telnyx env vars:
 //   TELNYX_API_KEY, TELNYX_FROM_NUMBER
@@ -154,7 +155,7 @@ function makeVonageJwt(appId, privateKey) {
 // Vonage dials the lead; when they answer, the /api/vonage-ncco webhook returns
 // an NCCO that SIP-connects the call to the ElevenLabs agent for their language.
 // Lead context travels as query params → X-* SIP headers → {{sip_x_*}} vars.
-async function handleVonage(body, res) {
+async function handleVonage(body, res, { leadId = null } = {}) {
   const appId = (process.env.VONAGE_APPLICATION_ID || "").trim()
   const privateKeyRaw = (process.env.VONAGE_PRIVATE_KEY || "").trim()
   const fromNumber = "13128008565" // Swiftleads registered pool DID; +17735425943 is spam-flagged
@@ -196,6 +197,7 @@ async function handleVonage(body, res) {
     language: isEs ? "es" : "en",
   })
   if (dynamicVars.timezone) nccoParams.set("timezone", dynamicVars.timezone)
+  if (leadId) nccoParams.set("lead_id", String(leadId))
   const answerUrl = `${nccoBase}?${nccoParams.toString()}`
 
   // Unescape the private key (env vars replace \n with literal backslash-n)
@@ -249,6 +251,9 @@ async function handleVonage(body, res) {
 // call is even placed. Without this, a prospect who doesn't answer or hangs
 // up before booking never existed anywhere: the CRM only ever got a lead if
 // the AI call connected AND completed a booking.
+// Returns the CRM lead id when it is known, so the call this app is about to
+// place can be attributed to that lead's timeline instead of arriving as an
+// orphan call record. A failure here still never fails the callback.
 async function saveLeadToCrm(body) {
   // Vercel serverless functions can freeze/terminate right after the response
   // is sent, so a true unawaited background call risks never completing.
@@ -256,7 +261,7 @@ async function saveLeadToCrm(body) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 4000)
   try {
-    await fetch("https://leadtrackerai.com/api/public/cta/swiftleads/quick-lead", {
+    const response = await fetch("https://leadtrackerai.com/api/public/cta/swiftleads/quick-lead", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -267,8 +272,13 @@ async function saveLeadToCrm(body) {
       }),
       signal: controller.signal,
     })
+    if (!response.ok) return null
+    const data = await response.json().catch(() => ({}))
+    const leadId = Number(data?.leadId)
+    return Number.isSafeInteger(leadId) && leadId > 0 ? leadId : null
   } catch (err) {
     console.error("[crm-lead] save failed", err?.message)
+    return null
   } finally {
     clearTimeout(timeout)
   }
@@ -284,14 +294,16 @@ export default async function handler(req, res) {
 
     // A slow or failed CRM save must never block or fail the callback itself
     // — the call is the time-sensitive part. Bounded above at 4s.
-    await saveLeadToCrm(body)
+    const leadId = await saveLeadToCrm(body)
 
-    const provider = (process.env.VOICE_PROVIDER || "telnyx").trim().toLowerCase()
+    // Vonage is the live provider. Defaulting to Telnyx meant an environment
+    // that lost the variable silently dialled a backend we no longer run.
+    const provider = (process.env.VOICE_PROVIDER || "vonage").trim().toLowerCase()
 
-    if (provider === "vonage") {
-      return await handleVonage(body, res)
+    if (provider === "telnyx") {
+      return await handleTelnyx(body, res)
     }
-    return await handleTelnyx(body, res)
+    return await handleVonage(body, res, { leadId })
   } catch (error) {
     return res.status(500).json({ error: error?.message || "Failed to start callback" })
   }

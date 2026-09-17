@@ -25,13 +25,22 @@ async function readJsonBody(req) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" })
   const body = await readJsonBody(req)
+  const query = new URL(req.url || "", "https://crestview-callback.vercel.app").searchParams
 
-  const timeZone = String(body.timezone || "America/New_York").trim()
+  // Who the booking is for comes from the query string when it is there.
+  // On the Voice Live leg those params are pinned into the tool's URL by
+  // LeadTracker at mint time, so they are the lead who filled in the form; the
+  // body is written by the model and a hallucinated email would book a
+  // stranger's consultation. The body remains the fallback for the ElevenLabs
+  // route, which has no query params.
+  const pick = (key) => String(query.get(key) || body[key] || "").trim()
+
+  const timeZone = pick("timezone") || "America/New_York"
   const date = String(body.date || "").trim()
   const time = String(body.time || "").trim()
-  const name = String(body.name || "").trim()
-  const email = String(body.email || "").trim()
-  const phone = String(body.phone || "").trim()
+  const name = pick("name")
+  const email = pick("email")
+  const phone = pick("phone")
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{1,2}:\d{2}$/.test(time)) {
     return res.status(400).json({ error: "date must be YYYY-MM-DD and time must be HH:MM from a slots option" })
