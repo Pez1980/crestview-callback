@@ -40,3 +40,17 @@ Moving the whole platform off Telnyx means flipping both.
   Vonage's legacy `sip.nexmo.com` termination replies SIP 403 even with valid
   api-key/secret digest credentials; the modern path needs a Programmable SIP
   domain provisioned in the Vonage dashboard.
+
+## Outbound AI voicemail detection
+
+Vonage callbacks use paid Advanced Machine Detection with `mode: default`,
+`behavior: continue` and a 45-second beep timeout. Detection runs in parallel
+with the agent connection; it does not delay the answer NCCO or automatically
+leave a voicemail. The Telnyx path retains its existing premium detection.
+
+Human/machine results are sent directly to LeadTracker's
+`/api/public/cta/:brand/callback-voice-event`. The event URL carries a 15-minute
+HMAC capability over `callback-amd-v1.timestamp.brand.to.from`, using the
+existing shared `VONAGE_API_SECRET`. LeadTracker additionally matches tenant,
+outbound Vonage UUID, phone pair and call creation time before storing results.
+Deploy the receiving LeadTracker route before deploying this app.

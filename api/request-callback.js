@@ -24,7 +24,7 @@
 //   VONAGE_PRIVATE_KEY             — RSA private key for JWT (multiline, \n-escaped)
 //   VONAGE_FROM_NUMBER             — E.164 caller ID (e.g. 17735425943)
 
-import { createSign } from "node:crypto"
+import { createHmac, createSign } from "node:crypto"
 
 export const config = { api: { bodyParser: false } }
 
@@ -209,13 +209,30 @@ async function handleVonage(body, res, { leadId = null } = {}) {
 
   const jwt = makeVonageJwt(appId, privateKey)
 
+  // Detection runs alongside the agent connection. The signed event URL is a
+  // short-lived capability scoped to this brand and phone pair, allowing the
+  // result to be retained by LeadTracker without sharing webhook credentials
+  // between the dialer's and callback app's different Vonage applications.
+  const eventSecret = (process.env.VONAGE_API_SECRET || "").trim()
+  if (!eventSecret) return res.status(500).json({ error: "Vonage callback events are not configured" })
+  const eventTimestamp = Date.now()
+  const eventBrand = process.env.LEADTRACKER_CTA_BRAND || "swiftleads"
+  const eventFrom = `+${fromNumber}`
+  const eventSignature = createHmac("sha256", eventSecret)
+    .update(["callback-amd-v1", eventTimestamp, eventBrand, to, eventFrom].join("."))
+    .digest("hex")
+  const eventBase = (process.env.LEADTRACKER_BASE_URL || "https://leadtrackerai.com").replace(/\/$/, "")
+  const eventParams = new URLSearchParams({ timestamp: String(eventTimestamp), to, from: eventFrom, signature: eventSignature })
+  const eventUrl = `${eventBase}/api/public/cta/${encodeURIComponent(eventBrand)}/callback-voice-event?${eventParams}`
+
   const vonageBody = {
     to: [{ type: "phone", number: to.replace(/^\+/, "") }],
     from: { type: "phone", number: fromNumber },
     answer_url: [answerUrl],
     answer_method: "GET",
-    event_url: ["https://crestview-callback.vercel.app/api/vonage-event"],
+    event_url: [eventUrl],
     event_method: "POST",
+    advanced_machine_detection: { behavior: "continue", mode: "default", beep_timeout: 45 },
     length_timer: 600,
     ringing_timer: 30,
   }
